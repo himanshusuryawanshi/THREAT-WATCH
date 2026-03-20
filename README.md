@@ -83,8 +83,6 @@ A real-time global conflict monitoring dashboard built with React, Leaflet, and 
 
 ## Project Structure
 
-## Project Structure
-
     Threat-Watch/
     ├── public/
     ├── src/
