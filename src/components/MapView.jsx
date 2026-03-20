@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet.heat'
+import 'leaflet.markercluster'
 import useStore from '../store/useStore'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
 
@@ -15,7 +16,6 @@ export default function MapView({ onMapReady }) {
   const setSelectedEvent   = useStore(s => s.setSelectedEvent)
   const clearSelectedEvent = useStore(s => s.clearSelectedEvent)
 
-  // Init map once
   useEffect(() => {
     if (mapInstance.current) return
     const map = L.map(mapRef.current, {
@@ -30,15 +30,30 @@ export default function MapView({ onMapReady }) {
     onMapReady(map)
   }, [])
 
-  // Re-render when events or layer changes
   useEffect(() => {
     const map = mapInstance.current
     if (!map) return
     renderLayer(map, filteredEvents, layer)
   }, [filteredEvents, layer])
 
+  function createPopup(ev, color) {
+    return `
+      <div style="min-width:180px">
+        <div style="color:${color};font-size:9px;letter-spacing:2px;margin-bottom:4px">
+          ${ev.type.toUpperCase()}
+        </div>
+        <div style="color:#fff;font-size:13px;font-family:'Oswald',sans-serif;margin-bottom:6px">
+          ${ev.location}, ${ev.country}
+        </div>
+        <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${ev.date}</div>
+        <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${ev.actor}</div>
+        <div style="color:#ff2a2a;font-size:10px">💀 ${ev.fatal} fatalities</div>
+      </div>
+    `
+  }
+
   function renderLayer(map, events, mode) {
-    // Clear existing markers
+    // Clear markers
     markersRef.current.forEach(m => map.removeLayer(m))
     markersRef.current = []
 
@@ -48,30 +63,71 @@ export default function MapView({ onMapReady }) {
       heatLayerRef.current = null
     }
 
+    // ── HEATMAP ──────────────────────────────────────────────
     if (mode === 'heatmap') {
-      // Build heatmap points [lat, lng, intensity]
       const points = events.map(ev => [
         ev.lat,
         ev.lng,
         Math.min(1, (parseInt(ev.fatal) || 0) / 30 + 0.2),
       ])
       heatLayerRef.current = L.heatLayer(points, {
-        radius: 35,
-        blur: 25,
-        maxZoom: 8,
-        max: 1.0,
+        radius: 35, blur: 25, maxZoom: 8, max: 1.0,
         gradient: {
-          0.0: '#0ea5e9',
-          0.3: '#a855f7',
-          0.6: '#f97316',
-          0.8: '#ff2a2a',
-          1.0: '#ffffff',
+          0.0: '#0ea5e9', 0.3: '#a855f7',
+          0.6: '#f97316', 0.8: '#ff2a2a', 1.0: '#ffffff',
         },
       }).addTo(map)
       return
     }
 
-    // Markers mode
+    // ── CLUSTER ───────────────────────────────────────────────
+    if (mode === 'cluster') {
+      const clusterGroup = L.markerClusterGroup({
+        maxClusterRadius: 60,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+        iconCreateFunction: (cluster) => {
+          const count = cluster.getChildCount()
+          const size  = count > 20 ? 46 : count > 10 ? 38 : 30
+          const color = count > 20 ? '#ff2a2a' : count > 10 ? '#f97316' : '#fbbf24'
+          return L.divIcon({
+            html: `<div style="
+              width:${size}px;height:${size}px;border-radius:50%;
+              background:${color}22;border:2px solid ${color};
+              display:flex;align-items:center;justify-content:center;
+              color:${color};font-size:11px;font-weight:bold;
+              font-family:'Share Tech Mono',monospace;
+              box-shadow:0 0 10px ${color}44;
+            ">${count}</div>`,
+            className: '',
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          })
+        },
+      })
+
+      events.forEach(ev => {
+        const color  = getEventColor(ev.type)
+        const radius = getMarkerRadius(ev.fatal)
+        const marker = L.circleMarker([ev.lat, ev.lng], {
+          radius, fillColor: color, color,
+          weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
+        })
+        marker.bindPopup(createPopup(ev, color))
+        marker.on('click', e => {
+          e.originalEvent.stopPropagation()
+          setSelectedEvent(ev)
+        })
+        clusterGroup.addLayer(marker)
+      })
+
+      clusterGroup.addTo(map)
+      markersRef.current.push(clusterGroup)
+      return
+    }
+
+    // ── MARKERS (default) ────────────────────────────────────
     events.forEach(ev => {
       const color  = getEventColor(ev.type)
       const radius = getMarkerRadius(ev.fatal)
@@ -80,26 +136,11 @@ export default function MapView({ onMapReady }) {
         radius, fillColor: color, color,
         weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
       })
-
-      circle.bindPopup(`
-        <div style="min-width:180px">
-          <div style="color:${color};font-size:9px;letter-spacing:2px;margin-bottom:4px">
-            ${ev.type.toUpperCase()}
-          </div>
-          <div style="color:#fff;font-size:13px;font-family:'Oswald',sans-serif;margin-bottom:6px">
-            ${ev.location}, ${ev.country}
-          </div>
-          <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${ev.date}</div>
-          <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${ev.actor}</div>
-          <div style="color:#ff2a2a;font-size:10px">💀 ${ev.fatal} fatalities</div>
-        </div>
-      `)
-
+      circle.bindPopup(createPopup(ev, color))
       circle.on('click', e => {
         e.originalEvent.stopPropagation()
         setSelectedEvent(ev)
       })
-
       circle.addTo(map)
       markersRef.current.push(circle)
 
@@ -151,11 +192,9 @@ export default function MapView({ onMapReady }) {
         <div className="absolute bottom-10 right-2.5 z-[500]">
           <div className="bg-[#06090e]/90 border border-border2 rounded px-3 py-2">
             <div className="text-[8px] tracking-widest text-muted mb-2">INTENSITY</div>
-            <div className="flex items-center gap-2">
-              <div className="w-24 h-2 rounded-full" style={{
-                background: 'linear-gradient(to right, #0ea5e9, #a855f7, #f97316, #ff2a2a, #fff)'
-              }} />
-            </div>
+            <div className="w-24 h-2 rounded-full" style={{
+              background: 'linear-gradient(to right, #0ea5e9, #a855f7, #f97316, #ff2a2a, #fff)'
+            }} />
             <div className="flex justify-between text-[8px] text-muted mt-1">
               <span>Low</span><span>High</span>
             </div>
@@ -182,6 +221,28 @@ export default function MapView({ onMapReady }) {
             ))}
             <div className="text-[8px] text-muted mt-1.5 border-t border-border pt-1.5">
               Size = fatality count
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cluster legend */}
+      {layer === 'cluster' && (
+        <div className="absolute bottom-2.5 left-2.5 z-[500]">
+          <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
+            <div className="text-[8px] tracking-widest text-muted mb-2">CLUSTERS</div>
+            {[
+              ['1–10 events',  '#fbbf24'],
+              ['11–20 events', '#f97316'],
+              ['20+ events',   '#ff2a2a'],
+            ].map(([label, color]) => (
+              <div key={label} className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                <span className="text-[9px] text-muted">{label}</span>
+              </div>
+            ))}
+            <div className="text-[8px] text-muted mt-1.5 border-t border-border pt-1.5">
+              Click cluster to zoom in
             </div>
           </div>
         </div>
