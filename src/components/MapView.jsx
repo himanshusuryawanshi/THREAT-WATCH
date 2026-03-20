@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
+import 'leaflet.heat'
 import useStore from '../store/useStore'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
 
 export default function MapView({ onMapReady }) {
-  const mapRef       = useRef(null)
-  const mapInstance  = useRef(null)
-  const markersRef   = useRef([])
+  const mapRef          = useRef(null)
+  const mapInstance     = useRef(null)
+  const markersRef      = useRef([])
+  const heatLayerRef    = useRef(null)
   const [layer, setLayer] = useState('markers')
 
-  const filteredEvents  = useStore(s => s.filteredEvents)
-  const setSelectedEvent = useStore(s => s.setSelectedEvent)
+  const filteredEvents     = useStore(s => s.filteredEvents)
+  const setSelectedEvent   = useStore(s => s.setSelectedEvent)
   const clearSelectedEvent = useStore(s => s.clearSelectedEvent)
 
   // Init map once
@@ -28,22 +30,55 @@ export default function MapView({ onMapReady }) {
     onMapReady(map)
   }, [])
 
-  // Re-render markers when filteredEvents changes
+  // Re-render when events or layer changes
   useEffect(() => {
     const map = mapInstance.current
     if (!map) return
+    renderLayer(map, filteredEvents, layer)
+  }, [filteredEvents, layer])
 
-    // Remove old markers
+  function renderLayer(map, events, mode) {
+    // Clear existing markers
     markersRef.current.forEach(m => map.removeLayer(m))
     markersRef.current = []
 
-    filteredEvents.forEach(ev => {
+    // Clear heatmap
+    if (heatLayerRef.current) {
+      map.removeLayer(heatLayerRef.current)
+      heatLayerRef.current = null
+    }
+
+    if (mode === 'heatmap') {
+      // Build heatmap points [lat, lng, intensity]
+      const points = events.map(ev => [
+        ev.lat,
+        ev.lng,
+        Math.min(1, (parseInt(ev.fatal) || 0) / 30 + 0.2),
+      ])
+      heatLayerRef.current = L.heatLayer(points, {
+        radius: 35,
+        blur: 25,
+        maxZoom: 8,
+        max: 1.0,
+        gradient: {
+          0.0: '#0ea5e9',
+          0.3: '#a855f7',
+          0.6: '#f97316',
+          0.8: '#ff2a2a',
+          1.0: '#ffffff',
+        },
+      }).addTo(map)
+      return
+    }
+
+    // Markers mode
+    events.forEach(ev => {
       const color  = getEventColor(ev.type)
       const radius = getMarkerRadius(ev.fatal)
 
       const circle = L.circleMarker([ev.lat, ev.lng], {
-        radius, fillColor: color, color, weight: 1.5,
-        opacity: 0.9, fillOpacity: 0.5,
+        radius, fillColor: color, color,
+        weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
       })
 
       circle.bindPopup(`
@@ -68,7 +103,7 @@ export default function MapView({ onMapReady }) {
       circle.addTo(map)
       markersRef.current.push(circle)
 
-      // Pulse ring for recent events (within 5 days)
+      // Pulse ring for recent events
       const days = (Date.now() - new Date(ev.date)) / 86400000
       if (days < 5) {
         const pulse = L.circleMarker([ev.lat, ev.lng], {
@@ -78,7 +113,7 @@ export default function MapView({ onMapReady }) {
         markersRef.current.push(pulse)
       }
     })
-  }, [filteredEvents])
+  }
 
   return (
     <div className="flex-1 relative overflow-hidden">
@@ -94,40 +129,63 @@ export default function MapView({ onMapReady }) {
 
       {/* Layer toggle */}
       <div className="absolute top-2.5 right-2.5 z-[500] flex gap-1">
-        {['markers', 'cluster'].map(l => (
-          <button key={l} onClick={() => setLayer(l)}
+        {[
+          { id: 'markers', label: 'MARKERS' },
+          { id: 'heatmap', label: 'HEATMAP' },
+          { id: 'cluster', label: 'CLUSTER' },
+        ].map(l => (
+          <button key={l.id} onClick={() => setLayer(l.id)}
             className={`px-2.5 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all
-              ${layer === l
+              ${layer === l.id
                 ? 'bg-threat/15 border-threat/50 text-threat'
                 : 'bg-[#06090e]/90 border-border2 text-muted hover:text-[#c9d1d9]'
               }`}
           >
-            {l.toUpperCase()}
+            {l.label}
           </button>
         ))}
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-2.5 left-2.5 z-[500]">
-        <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
-          <div className="text-[8px] tracking-widest text-muted mb-2">LEGEND</div>
-          {[
-            ['Battles',                  '#ff2a2a'],
-            ['Explosions',               '#f97316'],
-            ['Civilian Violence',        '#fbbf24'],
-            ['Protests',                 '#38bdf8'],
-            ['Riots',                    '#a855f7'],
-          ].map(([label, color]) => (
-            <div key={label} className="flex items-center gap-1.5 mb-1">
-              <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-              <span className="text-[9px] text-muted">{label}</span>
+      {/* Heatmap legend */}
+      {layer === 'heatmap' && (
+        <div className="absolute bottom-10 right-2.5 z-[500]">
+          <div className="bg-[#06090e]/90 border border-border2 rounded px-3 py-2">
+            <div className="text-[8px] tracking-widest text-muted mb-2">INTENSITY</div>
+            <div className="flex items-center gap-2">
+              <div className="w-24 h-2 rounded-full" style={{
+                background: 'linear-gradient(to right, #0ea5e9, #a855f7, #f97316, #ff2a2a, #fff)'
+              }} />
             </div>
-          ))}
-          <div className="text-[8px] text-muted mt-1.5 border-t border-border pt-1.5">
-            Size = fatality count
+            <div className="flex justify-between text-[8px] text-muted mt-1">
+              <span>Low</span><span>High</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Markers legend */}
+      {layer === 'markers' && (
+        <div className="absolute bottom-2.5 left-2.5 z-[500]">
+          <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
+            <div className="text-[8px] tracking-widest text-muted mb-2">LEGEND</div>
+            {[
+              ['Battles',          '#ff2a2a'],
+              ['Explosions',       '#f97316'],
+              ['Civilian Violence','#fbbf24'],
+              ['Protests',         '#38bdf8'],
+              ['Riots',            '#a855f7'],
+            ].map(([label, color]) => (
+              <div key={label} className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                <span className="text-[9px] text-muted">{label}</span>
+              </div>
+            ))}
+            <div className="text-[8px] text-muted mt-1.5 border-t border-border pt-1.5">
+              Size = fatality count
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

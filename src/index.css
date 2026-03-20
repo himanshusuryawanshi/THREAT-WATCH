@@ -55,8 +55,8 @@ html, body, #root {
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes scroll-news {
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .animate-pulse-ring  { animation: pulse-ring 2s infinite; }

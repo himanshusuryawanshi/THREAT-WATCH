@@ -58,12 +58,14 @@ export default function Sidebar({ mapRef }) {
         <div className="text-[8px] tracking-[2.5px] text-muted mb-2">EVENT TYPE</div>
         <div className="flex flex-col gap-1">
           <FilterBtn label="All Events" count={counts.all} color="#ffffff"
+            dataType="all"
             active={activeType === 'all'} onClick={() => setActiveType('all')} />
-          {Object.entries(EVENT_TYPES).map(([type, { color, label }]) => (
+            {Object.entries(EVENT_TYPES).map(([type, { color, label }]) => (
             <FilterBtn key={type} label={label} count={counts[type] || 0}
-              color={color} active={activeType === type}
-              onClick={() => setActiveType(type)} />
-          ))}
+            color={color} active={activeType === type}
+            dataType={type}
+            onClick={() => setActiveType(type)} />
+            ))}
         </div>
       </div>
 
@@ -125,9 +127,11 @@ export default function Sidebar({ mapRef }) {
   )
 }
 
-function FilterBtn({ label, count, color, active, onClick }) {
+function FilterBtn({ label, count, color, active, onClick, dataType }) {
   return (
-    <button onClick={onClick}
+    <button
+      onClick={onClick}
+      data-type={dataType}
       className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[10px] font-mono text-left w-full transition-all
         ${active
           ? 'border-threat bg-threat/10 text-white'
