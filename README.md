@@ -83,22 +83,48 @@ A real-time global conflict monitoring dashboard built with React, Leaflet, and 
 
 ## Project Structure
 
-src/
-├── components/
-│   ├── Header.jsx        top bar with stats and source toggle
-│   ├── NewsStrip.jsx     scrolling breaking news strip
-│   ├── Sidebar.jsx       filters and event ticker list
-│   ├── MapView.jsx       Leaflet map with markers, heatmap, cluster
-│   ├── RightPanel.jsx    charts, risk ranking, detail panel
-│   ├── Timeline.jsx      interactive date brush with play
-│   └── StatusBar.jsx     bottom info and export bar
-├── store/
-│   └── useStore.js       Zustand global state and filters
-├── data/
-│   └── events.js         35 realistic mock conflict events
-└── utils/
-└── constants.js      event type colors and news headlines
+## Project Structure
 
+    Threat-Watch/
+    ├── public/
+    ├── src/
+    │   ├── components/
+    │   │   ├── Header.jsx          # Top bar, stats, threat meter, source toggle
+    │   │   ├── NewsStrip.jsx       # Auto-scrolling breaking news
+    │   │   ├── Sidebar.jsx         # Filters, date range, fatality slider, ticker
+    │   │   ├── MapView.jsx         # Leaflet map — markers, heatmap, cluster
+    │   │   ├── RightPanel.jsx      # Charts + event detail panel
+    │   │   ├── Timeline.jsx        # Canvas timeline with drag brush and play
+    │   │   └── StatusBar.jsx       # Source info, region pills, export, share
+    │   ├── pages/
+    │   │   ├── CountryPage.jsx     # /country/:name — country drill-down
+    │   │   ├── ComparePage.jsx     # /compare — side by side two countries
+    │   │   ├── ActorPage.jsx       # /actor/:name — actor profile
+    │   │   ├── HeatmapPage.jsx     # /heatmap — fullscreen density view
+    │   │   └── TimelinePage.jsx    # /timeline — historical 1946-present
+    │   ├── store/
+    │   │   └── useStore.js         # Zustand global state and filters
+    │   ├── data/
+    │   │   └── events.js           # 35 mock conflict events
+    │   ├── hooks/
+    │   │   └── useEvents.js        # API fetch with mock fallback
+    │   ├── utils/
+    │   │   └── constants.js        # Colors, types, headlines
+    │   ├── App.jsx
+    │   ├── main.jsx
+    │   └── index.css
+    ├── server/
+    │   ├── index.js                # Express API server
+    │   ├── services/
+    │   │   ├── acled.js            # ACLED API wrapper
+    │   │   └── gdelt.js            # GDELT BigQuery wrapper
+    │   └── cache/
+    │       └── redis.js            # Redis cache helpers
+    ├── index.html
+    ├── package.json
+    ├── tailwind.config.js
+    └── vite.config.js
+    
 ## Roadmap
 
 - [ ] Country drill-down page /country/:name
