@@ -40,6 +40,11 @@ export default function App() {
       const { resetFilters, clearSelectedEvent, setActiveType } = useStore.getState()
 
       if (e.key === 'Escape') { clearSelectedEvent(); return }
+      if (e.key === '/') {
+        e.preventDefault()
+        document.querySelector('header input')?.focus()
+        return
+      }
 
       switch (e.key.toLowerCase()) {
         case 'r': resetFilters(); break
@@ -50,6 +55,7 @@ export default function App() {
         case '4': setActiveType('Protests'); break
         case '5': setActiveType('Violence against civilians'); break
         case '6': setActiveType('Riots'); break
+        case '/' : 
       }
     }
     window.addEventListener('keydown', handleKey)
