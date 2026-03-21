@@ -1,12 +1,11 @@
 import useStore from '../store/useStore'
 
 export default function Header() {
-  const getStats    = useStore(s => s.getStats)
-  const dataSource  = useStore(s => s.dataSource)
+  const getStats      = useStore(s => s.getStats)
+  const dataSource    = useStore(s => s.dataSource)
   const setDataSource = useStore(s => s.setDataSource)
-  const stats = getStats()
-
-  const sources = ['gdelt', 'acled', 'demo']
+  const stats         = getStats()
+  const sources       = ['gdelt', 'acled', 'demo']
 
   return (
     <header className="flex items-center gap-3 px-4 h-12 bg-[#06090e] border-b border-border flex-shrink-0 z-50">
@@ -25,7 +24,23 @@ export default function Header() {
       <input
         type="text"
         placeholder="Search country, actor, event..."
-        onChange={e => useStore.getState().setSearch(e.target.value)}
+        onChange={e => {
+          if (e.target.value === '') {
+            useStore.setState({ search: '' })
+            useStore.getState().applyFilters()
+          }
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            useStore.setState({ search: e.target.value })
+            useStore.getState().applyFilters()
+          }
+          if (e.key === 'Escape') {
+            e.target.value = ''
+            useStore.setState({ search: '' })
+            useStore.getState().applyFilters()
+          }
+        }}
         className="flex-1 max-w-[220px] bg-panel2 border border-border2 text-[#c9d1d9] font-mono text-[11px] px-3 py-1.5 rounded focus:outline-none focus:border-threat placeholder-muted"
       />
 
@@ -36,9 +51,9 @@ export default function Header() {
       </div>
 
       {/* Stats */}
-      <Stat value={stats.total}      label="EVENTS"      color="text-threat"   />
-      <Stat value={stats.fatalities} label="FATALITIES"  color="text-orange-400" />
-      <Stat value={stats.countries}  label="COUNTRIES"   color="text-yellow-400" />
+      <Stat value={stats.total}      label="EVENTS"     color="text-threat"     />
+      <Stat value={stats.fatalities} label="FATALITIES" color="text-orange-400" />
+      <Stat value={stats.countries}  label="COUNTRIES"  color="text-yellow-400" />
 
       {/* Trend */}
       <div className="text-center px-1">
@@ -63,8 +78,14 @@ export default function Header() {
         ))}
       </div>
 
+      {/* Nav links */}
+      <div className="flex items-center gap-1 ml-auto">
+        <NavLink href="/" label="DASHBOARD" />
+        <NavLink href="/compare" label="COMPARE" />
+      </div>
+
       {/* Live badge */}
-      <div className="flex items-center gap-1.5 text-green-400 text-[10px] tracking-widest ml-auto">
+      <div className="flex items-center gap-1.5 text-green-400 text-[10px] tracking-widest">
         <div className="w-2 h-2 rounded-full bg-green-400 animate-blink" />
         LIVE
       </div>
@@ -79,5 +100,21 @@ function Stat({ value, label, color }) {
       <div className={`text-base font-bold ${color}`}>{value.toLocaleString()}</div>
       <div className="text-[8px] tracking-widest text-muted">{label}</div>
     </div>
+  )
+}
+
+function NavLink({ href, label }) {
+  const active = window.location.pathname === href
+  return (
+    <a
+      href={href}
+      className={`px-2.5 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all no-underline
+        ${active
+          ? 'bg-threat/15 border-threat/50 text-threat'
+          : 'bg-transparent border-border2 text-muted hover:border-threat/50 hover:text-[#c9d1d9]'
+        }`}
+    >
+      {label}
+    </a>
   )
 }

@@ -6,7 +6,6 @@ export default function Sidebar({ mapRef }) {
     filteredEvents, activeType, setActiveType,
     dateFrom, dateTo, setDateRange,
     minFatal, setMinFatal,
-    search, setSearch,
     resetFilters, setSelectedEvent,
   } = useStore()
 
@@ -26,17 +25,6 @@ export default function Sidebar({ mapRef }) {
 
   return (
     <div className="w-[220px] flex-shrink-0 bg-panel border-r border-border flex flex-col overflow-hidden">
-
-      {/* Search */}
-      <div className="p-2.5 border-b border-border">
-        <input
-          type="text"
-          placeholder="Search..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full bg-panel2 border border-border2 text-[#c9d1d9] font-mono text-[10px] px-2.5 py-1.5 rounded focus:outline-none focus:border-threat placeholder-muted"
-        />
-      </div>
 
       {/* Date range */}
       <div className="p-2.5 border-b border-border">
@@ -60,12 +48,12 @@ export default function Sidebar({ mapRef }) {
           <FilterBtn label="All Events" count={counts.all} color="#ffffff"
             dataType="all"
             active={activeType === 'all'} onClick={() => setActiveType('all')} />
-            {Object.entries(EVENT_TYPES).map(([type, { color, label }]) => (
+          {Object.entries(EVENT_TYPES).map(([type, { color, label }]) => (
             <FilterBtn key={type} label={label} count={counts[type] || 0}
-            color={color} active={activeType === type}
-            dataType={type}
-            onClick={() => setActiveType(type)} />
-            ))}
+              color={color} active={activeType === type}
+              dataType={type}
+              onClick={() => setActiveType(type)} />
+          ))}
         </div>
       </div>
 
@@ -73,7 +61,9 @@ export default function Sidebar({ mapRef }) {
       <div className="p-2.5 border-b border-border">
         <div className="flex justify-between items-center mb-1.5">
           <div className="text-[8px] tracking-[2.5px] text-muted">MIN FATALITIES</div>
-          <div className="text-[10px] text-threat font-bold">{minFatal === 50 ? '50+' : minFatal}</div>
+          <div className="text-[10px] text-threat font-bold">
+            {minFatal === 50 ? '50+' : minFatal}
+          </div>
         </div>
         <input type="range" min="0" max="50" step="1" value={minFatal}
           onChange={e => setMinFatal(parseInt(e.target.value))}
@@ -100,20 +90,35 @@ export default function Sidebar({ mapRef }) {
       {/* Ticker */}
       <div className="flex-1 overflow-y-auto">
         {recent.length === 0 && (
-          <div className="text-center text-muted text-[10px] py-6">No events match filters</div>
+          <div className="text-center text-muted text-[10px] py-6">
+            No events match filters
+          </div>
         )}
         {recent.map((ev, i) => (
           <div key={ev.id}
-            onClick={() => flyTo(ev)}
-            className={`px-2.5 py-2 border-b border-border/50 cursor-pointer hover:bg-white/[0.02] transition-colors animate-slide-in
+            className={`px-2.5 py-2 border-b border-border/50 cursor-pointer hover:bg-white/[0.02] transition-colors
               ${i < 3 ? 'border-l-2 border-l-threat bg-threat/5' : ''}`}
           >
-            <div className="text-[8px] tracking-wide mb-0.5" style={{ color: getEventColor(ev.type) }}>
+            <div
+              className="text-[8px] tracking-wide mb-0.5"
+              style={{ color: getEventColor(ev.type) }}
+              onClick={() => flyTo(ev)}
+            >
               {ev.type}
             </div>
-            <div className="text-[11px] text-white mb-1">{ev.location}, {ev.country}</div>
+            <div
+              className="text-[11px] text-white mb-1 hover:text-blue-400 transition-colors cursor-pointer"
+              onClick={() => window.location.href = `/country/${encodeURIComponent(ev.country)}`}
+            >
+              {ev.location}, {ev.country}
+            </div>
             <div className="flex justify-between text-[9px] text-muted">
-              <span>{ev.actor.substring(0, 18)}</span>
+              <span
+                className="hover:text-blue-400 transition-colors cursor-pointer"
+                onClick={() => window.location.href = `/actor/${encodeURIComponent(ev.actor)}`}
+              >
+                {ev.actor.substring(0, 18)}
+              </span>
               {ev.fatal > 0
                 ? <span className="text-threat">💀 {ev.fatal}</span>
                 : <span>0 fatal</span>

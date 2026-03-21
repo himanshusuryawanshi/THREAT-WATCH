@@ -144,22 +144,28 @@ export default function RightPanel() {
       </div>
 
       {/* ── RISK RANKING ── */}
-      <div className="p-2.5 flex-1 overflow-y-auto">
+     <div className="p-2.5 flex-1 overflow-y-auto">
         <div className="text-[8px] tracking-[2.5px] text-muted mb-2">RISK RANKING</div>
         {ranked.map((r, i) => {
-          const col = r.score > 70 ? '#ff2a2a' : r.score > 50 ? '#f97316' : '#fbbf24'
-          return (
-            <div key={r.country} className="flex items-center gap-2 py-1.5 border-b border-border/60">
-              <span className="text-[9px] text-muted w-3">{i + 1}</span>
-              <span className="text-[11px] text-[#e5e7eb] flex-1">{r.country}</span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+            const col = r.score > 70 ? '#ff2a2a' : r.score > 50 ? '#f97316' : '#fbbf24'
+            return (
+            <div
+                key={r.country}
+                className="flex items-center gap-2 py-1.5 border-b border-border/60 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                onClick={() => window.location.href = `/country/${encodeURIComponent(r.country)}`}
+            >
+                <span className="text-[9px] text-muted w-3">{i + 1}</span>
+                <span className="text-[11px] text-[#e5e7eb] flex-1 hover:text-blue-400 transition-colors">
+                {r.country}
+                </span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                 style={{ background: col + '22', color: col }}>
                 {r.score}
-              </span>
+                </span>
             </div>
-          )
+            )
         })}
-      </div>
+        </div>
 
     </div>
   )
@@ -195,22 +201,44 @@ function DetailPanel({ event, onClose }) {
       </div>
 
       {/* Fields */}
-      <div className="flex flex-col gap-0">
-        {[
-          ['DATE',       event.date],
-          ['ACTOR',      event.actor],
-          ['FATALITIES', event.fatal > 0 ? `${event.fatal} confirmed` : '0 (non-lethal)'],
-          ['TYPE',       event.type],
-        ].map(([k, v]) => (
-          <div key={k} className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
-            <span className="text-muted tracking-widest">{k}</span>
-            <span className="text-right max-w-[130px] leading-tight"
-              style={{ color: k === 'FATALITIES' && event.fatal > 0 ? '#ff2a2a' : '#c9d1d9' }}>
-              {v}
+        <div className="flex flex-col gap-0">
+        <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
+            <span className="text-muted tracking-widest">DATE</span>
+            <span className="text-[#c9d1d9]">{event.date}</span>
+        </div>
+
+        <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
+            <span className="text-muted tracking-widest">ACTOR</span>
+            <span
+            className="text-blue-400 cursor-pointer hover:text-white transition-colors text-right max-w-[130px]"
+            onClick={() => window.location.href = `/actor/${encodeURIComponent(event.actor)}`}
+            >
+            {event.actor}
             </span>
-          </div>
-        ))}
-      </div>
+        </div>
+
+        <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
+            <span className="text-muted tracking-widest">COUNTRY</span>
+            <span
+            className="text-blue-400 cursor-pointer hover:text-white transition-colors"
+            onClick={() => window.location.href = `/country/${encodeURIComponent(event.country)}`}
+            >
+            {event.country}
+            </span>
+        </div>
+
+        <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
+            <span className="text-muted tracking-widest">FATALITIES</span>
+            <span style={{ color: event.fatal > 0 ? '#ff2a2a' : '#c9d1d9' }}>
+            {event.fatal > 0 ? `${event.fatal} confirmed` : '0 (non-lethal)'}
+            </span>
+        </div>
+
+        <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
+            <span className="text-muted tracking-widest">TYPE</span>
+            <span className="text-[#c9d1d9]">{event.type}</span>
+        </div>
+        </div>
 
       {/* Intensity bar */}
       <div>

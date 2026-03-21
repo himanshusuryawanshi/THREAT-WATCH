@@ -52,6 +52,45 @@ export default function MapView({ onMapReady }) {
     `
   }
 
+  async function highlightCountry(map, countryName) {
+  // Remove existing highlight
+    if (map._countryHighlight) {
+        map.removeLayer(map._countryHighlight)
+        map._countryHighlight = null
+    }
+
+    if (!countryName) return
+
+    try {
+        const res = await fetch(
+        'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
+        )
+        const data = await res.json()
+
+        const feature = data.features.find(f =>
+        f.properties.ADMIN.toLowerCase() === countryName.toLowerCase() ||
+        f.properties.ISO_A3.toLowerCase() === countryName.toLowerCase()
+        )
+
+        if (!feature) return
+
+        const layer = L.geoJSON(feature, {
+        style: {
+            color: '#38bdf8',
+            weight: 2,
+            opacity: 0.8,
+            fillColor: '#38bdf8',
+            fillOpacity: 0.08,
+            dashArray: '4 4',
+        },
+        }).addTo(map)
+
+        map._countryHighlight = layer
+    } catch (e) {
+        console.log('Could not load country boundary')
+    }
+    }
+
   function renderLayer(map, events, mode) {
     // Clear markers
     markersRef.current.forEach(m => map.removeLayer(m))
@@ -161,7 +200,7 @@ export default function MapView({ onMapReady }) {
       <div ref={mapRef} className="w-full h-full z-10" />
 
       {/* Escalation badge */}
-      <div className="absolute top-2.5 left-2.5 z-[500]">
+      <div className="absolute top-2.5 left-16 z-[500]">
         <div className="bg-threat/10 border border-threat/60 rounded px-2.5 py-1.5">
           <div className="text-[8px] text-threat font-bold tracking-widest">ESCALATING</div>
           <div className="text-[11px] text-white">Sudan +340% this week</div>
