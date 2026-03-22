@@ -34,7 +34,7 @@ export default function StatusBar() {
   return (
     <div className="h-[22px] bg-[#04060a] border-t border-border flex items-center px-3 gap-3 flex-shrink-0 text-[9px]">
       <span className="text-muted">
-        {dataSource.toUpperCase()} · {new Date().toUTCString().replace(' GMT', 'Z')}
+        {(dataSource|| 'demo').toUpperCase()} · {new Date().toUTCString().replace(' GMT', 'Z')}
       </span>
       <span className="text-muted">
         {filteredEvents.length} events in view

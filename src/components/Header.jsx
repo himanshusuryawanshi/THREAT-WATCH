@@ -1,11 +1,23 @@
 import useStore from '../store/useStore'
+import MOCK_EVENTS from '../data/events'
 
 export default function Header() {
   const getStats      = useStore(s => s.getStats)
   const dataSource    = useStore(s => s.dataSource)
   const setDataSource = useStore(s => s.setDataSource)
+  const loading       = useStore(s => s.loading)
   const stats         = getStats()
   const sources       = ['gdelt', 'acled', 'demo']
+
+  function handleSource(src) {
+    setDataSource(src)
+    if (src === 'demo') {
+      useStore.setState({ events: MOCK_EVENTS })
+      useStore.getState().applyFilters()
+    } else {
+      useStore.getState().loadLiveEvents(src)
+    }
+  }
 
   return (
     <header className="flex items-center gap-3 px-4 h-12 bg-[#06090e] border-b border-border flex-shrink-0 z-50">
@@ -66,14 +78,14 @@ export default function Header() {
         {sources.map(src => (
           <button
             key={src}
-            onClick={() => setDataSource(src)}
+            onClick={() => handleSource(src)}
             className={`px-2 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all
               ${dataSource === src
                 ? 'bg-green-500/15 border-green-500/50 text-green-400'
                 : 'bg-transparent border-border2 text-muted hover:text-[#c9d1d9]'
               }`}
           >
-            {src.toUpperCase()}
+            {loading && dataSource === src ? '...' : src.toUpperCase()}
           </button>
         ))}
       </div>

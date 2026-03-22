@@ -2,17 +2,49 @@ import { create } from 'zustand'
 import EVENTS from '../data/events'
 
 const useStore = create((set, get) => ({
+  // Data
   events:         EVENTS,
   filteredEvents: EVENTS,
   selectedEvent:  null,
+  loading:        false,
+  error:          null,
 
+  // Filters — all with explicit defaults
   activeType:  'all',
   dateFrom:    '2025-01-01',
-  dateTo:      '2025-03-20',
+  dateTo:      '2025-11-30',
   minFatal:    0,
   search:      '',
   dataSource:  'demo',
 
+  // Load live events from API
+  loadLiveEvents: async (source = 'acled') => {
+    set({ loading: true, error: null })
+    try {
+      const res  = await fetch(`http://localhost:3001/api/events?source=${source}&limit=3000`)
+      const data = await res.json()
+      if (data.status === 200) {
+        set({
+          events:     data.events,
+          loading:    false,
+          dateFrom:   '2025-01-01',
+          dateTo:     '2025-11-30',
+          activeType: 'all',
+          minFatal:   0,
+          search:     '',
+        })
+        get().applyFilters()
+        console.log(`[store] loaded ${data.events.length} live events`)
+      } else {
+        throw new Error(data.error)
+      }
+    } catch (err) {
+      console.error('[store] live load failed:', err.message)
+      set({ loading: false, error: err.message })
+    }
+  },
+
+  // Actions
   setSelectedEvent:   (event) => set({ selectedEvent: event }),
   clearSelectedEvent: ()      => set({ selectedEvent: null }),
   setDataSource:      (src)   => set({ dataSource: src }),
@@ -36,19 +68,26 @@ const useStore = create((set, get) => ({
 
   applyFilters: () => {
     const { events, activeType, dateFrom, dateTo, minFatal, search } = get()
-    const q = search.toLowerCase()
+    const type    = activeType  || 'all'
+    const from    = dateFrom    || '2025-01-01'
+    const to      = dateTo      || '2025-11-30'
+    const fatal   = minFatal    || 0
+    const q       = (search     || '').toLowerCase()
+
     const filtered = events.filter(ev => {
-      if (activeType !== 'all' && ev.type !== activeType)     return false
-      if (new Date(ev.date) < new Date(dateFrom))             return false
-      if (new Date(ev.date) > new Date(dateTo))               return false
-      if ((parseInt(ev.fatal) || 0) < minFatal)               return false
+      if (type !== 'all' && ev.type !== type)           return false
+      if (new Date(ev.date) < new Date(from))           return false
+      if (new Date(ev.date) > new Date(to))             return false
+      if ((parseInt(ev.fatal) || 0) < fatal)            return false
       if (q &&
         !ev.country.toLowerCase().includes(q) &&
         !ev.location.toLowerCase().includes(q) &&
         !ev.actor.toLowerCase().includes(q) &&
-        !ev.type.toLowerCase().includes(q))                   return false
+        !ev.type.toLowerCase().includes(q))             return false
       return true
     })
+
+    console.log('[filter] filtered:', filtered.length, 'from', events.length)
     set({ filteredEvents: filtered })
   },
 
@@ -56,7 +95,7 @@ const useStore = create((set, get) => ({
     set({
       activeType: 'all',
       dateFrom:   '2025-01-01',
-      dateTo:     '2025-03-20',
+      dateTo:     '2025-11-30',
       minFatal:   0,
       search:     '',
     })

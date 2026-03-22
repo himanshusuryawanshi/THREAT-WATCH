@@ -12,6 +12,8 @@ export default function MapView({ onMapReady }) {
   const markersRef   = useRef([])
   const heatLayerRef = useRef(null)
   const tilesRef     = useRef([])
+  const prevEventsRef = useRef([])
+  const prevLayerRef  = useRef('')
 
   const [layer,    setLayer]    = useState('markers')
   const [mapStyle, setMapStyle] = useState('dark')
@@ -24,12 +26,10 @@ export default function MapView({ onMapReady }) {
   useEffect(() => {
     if (mapInstance.current) return
     const map = L.map(mapRef.current, {
-    center: [20, 10],
-    zoom: 2,
-    zoomControl: true,
-    attributionControl: true,
-    minZoom: 2,
-    worldCopyJump: true,
+      center: [20, 10], zoom: 2,
+      zoomControl: true, attributionControl: true,
+      minZoom: 2,
+      worldCopyJump: true,
     })
     applyTiles('dark', map)
     map.on('click', () => clearSelectedEvent())
@@ -37,15 +37,20 @@ export default function MapView({ onMapReady }) {
     onMapReady(map)
   }, [])
 
-    const prevEventsRef = useRef([])
-    const prevLayerRef  = useRef('')
+  // ── SWITCH TILES WHEN STYLE CHANGES ─────────────────────────
+  useEffect(() => {
+    const map = mapInstance.current
+    if (!map) return
+    applyTiles(mapStyle, map)
+  }, [mapStyle])
 
-    useEffect(() => {
+  // ── RE-RENDER MARKERS WHEN EVENTS OR LAYER CHANGES ──────────
+  useEffect(() => {
     const map = mapInstance.current
     if (!map) return
 
     const eventsChanged = JSON.stringify(filteredEvents.map(e => e.id)) !==
-                            JSON.stringify(prevEventsRef.current.map(e => e.id))
+                          JSON.stringify(prevEventsRef.current.map(e => e.id))
     const layerChanged  = layer !== prevLayerRef.current
 
     if (!eventsChanged && !layerChanged) return
@@ -54,19 +59,22 @@ export default function MapView({ onMapReady }) {
     prevLayerRef.current  = layer
 
     renderLayer(map, filteredEvents, layer)
-    }, [filteredEvents, layer])
-
-  // ── RE-RENDER MARKERS WHEN EVENTS OR LAYER CHANGES ──────────
-  useEffect(() => {
-    const map = mapInstance.current
-    if (!map) return
-    renderLayer(map, filteredEvents, layer)
   }, [filteredEvents, layer])
 
   // ── TILE SWITCHER ────────────────────────────────────────────
   function applyTiles(style, map) {
-    tilesRef.current.forEach(t => map.removeLayer(t))
+    // Remove all existing tile layers
+    tilesRef.current.forEach(t => {
+      try { map.removeLayer(t) } catch(e) {}
+    })
     tilesRef.current = []
+
+    // Also remove any stray tile layers
+    map.eachLayer(layer => {
+      if (layer instanceof L.TileLayer) {
+        try { map.removeLayer(layer) } catch(e) {}
+      }
+    })
 
     if (style === 'satellite') {
       const base = L.tileLayer(
@@ -110,10 +118,13 @@ export default function MapView({ onMapReady }) {
 
   // ── RENDER LAYER ─────────────────────────────────────────────
   function renderLayer(map, events, mode) {
-    markersRef.current.forEach(m => map.removeLayer(m))
+    markersRef.current.forEach(m => {
+      try { map.removeLayer(m) } catch(e) {}
+    })
     markersRef.current = []
+
     if (heatLayerRef.current) {
-      map.removeLayer(heatLayerRef.current)
+      try { map.removeLayer(heatLayerRef.current) } catch(e) {}
       heatLayerRef.current = null
     }
 
@@ -165,11 +176,10 @@ export default function MapView({ onMapReady }) {
         const color  = getEventColor(ev.type)
         const radius = getMarkerRadius(ev.fatal)
         const marker = L.circleMarker([ev.lat, ev.lng], {
-        radius, fillColor: color, color,
-        weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
+          radius, fillColor: color, color,
+          weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
         })
         marker.bindPopup(createPopupHtml(ev, color), { autoPan: false })
-
         let hoverTimeout
         marker.on('mouseover', e => {
           e.originalEvent.stopPropagation()
@@ -183,7 +193,6 @@ export default function MapView({ onMapReady }) {
         marker.on('click', () => {
           window.location.href = `/country/${encodeURIComponent(ev.country)}`
         })
-
         clusterGroup.addLayer(marker)
       })
       clusterGroup.addTo(map)
@@ -199,7 +208,7 @@ export default function MapView({ onMapReady }) {
         radius, fillColor: color, color,
         weight: 1.5, opacity: 0.9, fillOpacity: 0.5,
         bubblingMouseEvents: false,
-        })
+      })
       circle.bindPopup(createPopupHtml(ev, color), { autoPan: false })
 
       let hoverTimeout
@@ -215,8 +224,6 @@ export default function MapView({ onMapReady }) {
       circle.on('click', () => {
         window.location.href = `/country/${encodeURIComponent(ev.country)}`
       })
-
-      // Keep popup open when mouse enters popup
       circle.on('popupopen', () => {
         const popupEl = circle.getPopup()?.getElement()
         if (!popupEl) return
@@ -229,12 +236,11 @@ export default function MapView({ onMapReady }) {
       circle.addTo(map)
       markersRef.current.push(circle)
 
-      // Pulse ring for recent events
       const days = (Date.now() - new Date(ev.date)) / 86400000
       if (days < 5) {
         const pulse = L.circleMarker([ev.lat, ev.lng], {
-        radius: radius + 6, fillColor: 'transparent',
-        color, weight: 0.8, opacity: 0.3, fillOpacity: 0,
+          radius: radius + 6, fillColor: 'transparent',
+          color, weight: 0.8, opacity: 0.3, fillOpacity: 0,
         }).addTo(map)
         markersRef.current.push(pulse)
       }
