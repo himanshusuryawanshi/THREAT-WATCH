@@ -1,21 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Chart from 'chart.js/auto'
-import { useEffect, useRef } from 'react'
-import EVENTS from '../data/events'
+import useStore from '../store/useStore'
 import { getEventColor } from '../utils/constants'
 
-const COUNTRIES = [...new Set(EVENTS.map(e => e.country))].sort()
-
 function CountryStats({ country }) {
-  const chartRef = useRef(null)
+  const chartRef  = useRef(null)
   const chartInst = useRef(null)
+  const allEvents = useStore(s => s.events)
+  const events    = allEvents.filter(e => e.country === country)
+  const fatal     = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
 
-  const events = EVENTS.filter(e => e.country === country)
-  const fatal  = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
   const actors = {}
   events.forEach(e => { actors[e.actor] = (actors[e.actor] || 0) + 1 })
-  const topActor = Object.entries(actors).sort((a, b) => b[1] - a[1])[0]
+  const topActor  = Object.entries(actors).sort((a, b) => b[1] - a[1])[0]
   const riskScore = Math.min(99, Math.round(events.length * 0.4 + fatal * 0.3))
   const riskColor = riskScore > 70 ? '#ff2a2a' : riskScore > 50 ? '#f97316' : '#fbbf24'
 
@@ -40,11 +38,11 @@ function CountryStats({ country }) {
         labels,
         datasets: [{
           data,
-          borderColor: riskColor,
+          borderColor:     riskColor,
           backgroundColor: riskColor + '22',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 3,
+          fill:            true,
+          tension:         0.4,
+          pointRadius:     3,
           pointBackgroundColor: riskColor,
         }],
       },
@@ -58,7 +56,7 @@ function CountryStats({ country }) {
       },
     })
     return () => chartInst.current?.destroy()
-  }, [country])
+  }, [country, allEvents])
 
   if (!country) return (
     <div className="flex-1 flex items-center justify-center text-muted text-sm">
@@ -127,9 +125,11 @@ function CountryStats({ country }) {
 }
 
 export default function ComparePage() {
-  const navigate = useNavigate()
-  const [countryA, setCountryA] = useState('Ukraine')
-  const [countryB, setCountryB] = useState('Sudan')
+  const navigate  = useNavigate()
+  const allEvents = useStore(s => s.events)
+  const COUNTRIES = [...new Set(allEvents.map(e => e.country))].sort()
+  const [countryA, setCountryA] = useState(COUNTRIES[0] || 'Ukraine')
+  const [countryB, setCountryB] = useState(COUNTRIES[1] || 'Sudan')
 
   return (
     <div className="h-screen bg-dark flex flex-col overflow-hidden">

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import Chart from 'chart.js/auto'
-import EVENTS from '../data/events'
+import useStore from '../store/useStore'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
 
 export default function ActorPage() {
@@ -14,7 +14,8 @@ export default function ActorPage() {
   const chartInst   = useRef(null)
 
   const actor  = decodeURIComponent(name)
-  const events = EVENTS.filter(e => e.actor.toLowerCase().includes(actor.toLowerCase()))
+  const allEvents = useStore(s => s.events)
+  const events    = allEvents.filter(e => (e.actor || '').toLowerCase().includes(actor.toLowerCase()))
   const fatal  = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
 
   const countries = {}

@@ -3,7 +3,7 @@ import useStore from '../store/useStore'
 import EVENTS from '../data/events'
 
 const START      = new Date('2025-01-01')
-const END        = new Date('2025-03-20')
+const END        = new Date('2025-11-30')
 const TOTAL_MS   = END - START
 const TOTAL_DAYS = Math.ceil(TOTAL_MS / 86400000)
 const PLAY_WIN   = 0.08 // playhead window size = ~1 week
@@ -14,7 +14,7 @@ export default function Timeline() {
   const selRef       = useRef({ start: 0, end: 1 })       // user window
   const playheadRef  = useRef(0)                           // playhead position (0..1)
   const playRef      = useRef(null)
-  const [label,    setLabel]   = useState('Jan 1 – Mar 20, 2025')
+  const [label,    setLabel]   = useState('Jan 1 – Nov 30, 2025')
   const [playing,  setPlaying] = useState(false)
   const setDateRange = useStore(s => s.setDateRange)
 

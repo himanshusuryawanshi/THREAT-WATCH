@@ -6,7 +6,7 @@ import useStore from '../store/useStore'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
 import StrikeArcs from './StrikeArcs'
 
-export default function MapView({ onMapReady }) {
+export default function MapView({ onMapReady, layer, setLayer }) {
   const mapRef       = useRef(null)
   const mapInstance  = useRef(null)
   const markersRef   = useRef([])
@@ -15,7 +15,7 @@ export default function MapView({ onMapReady }) {
   const prevEventsRef = useRef([])
   const prevLayerRef  = useRef('')
 
-  const [layer,    setLayer]    = useState('markers')
+//   const [layer,    setLayer]    = useState('markers')
   const [mapStyle, setMapStyle] = useState('dark')
 
   const filteredEvents     = useStore(s => s.filteredEvents)
@@ -317,7 +317,7 @@ export default function MapView({ onMapReady }) {
         </div>
       )}
 
-      {/* Markers legend */}
+      {/* Markers legend
       {layer === 'markers' && (
         <div className="absolute bottom-2.5 left-2.5 z-[500]">
           <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
@@ -339,7 +339,7 @@ export default function MapView({ onMapReady }) {
             </div>
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Cluster legend */}
       {layer === 'cluster' && (

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
 import Chart from 'chart.js/auto'
 import L from 'leaflet'
-import EVENTS from '../data/events'
+import useStore from '../store/useStore'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
 
 export default function CountryPage() {
@@ -14,7 +14,8 @@ export default function CountryPage() {
   const chartInst    = useRef(null)
 
   const country = decodeURIComponent(name)
-  const events  = EVENTS.filter(e => e.country.toLowerCase() === country.toLowerCase())
+  const allEvents = useStore(s => s.events)
+  const events    = allEvents.filter(e => e.country.toLowerCase() === country.toLowerCase())
   const total   = events.length
   const fatal   = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
   const actors  = {}
@@ -27,7 +28,12 @@ export default function CountryPage() {
   // Init map
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return
-    const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false })
+    const map = L.map(mapRef.current, {
+    zoomControl: true,
+    attributionControl: false,
+    minZoom: 2,
+    maxZoom: 12,
+    })
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19, subdomains: 'abcd',
     }).addTo(map)
@@ -51,7 +57,7 @@ export default function CountryPage() {
         `).addTo(map)
         bounds.push([ev.lat, ev.lng])
       })
-      map.fitBounds(bounds, { padding: [40, 40] })
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 8 })
     } else {
       map.setView([20, 10], 2)
     }
