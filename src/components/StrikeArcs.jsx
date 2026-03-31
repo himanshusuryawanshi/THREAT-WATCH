@@ -15,8 +15,9 @@ const STRIKE_SUBTYPES = [
   'bombing',
 ]
 
-const TRAVEL_MS = 3000
-const IMPACT_MS = 1200
+const TRAVEL_MS  = 3000
+const IMPACT_MS  = 1200
+const FLY_MS     = 1200  // how long to wait for map to finish flying before starting arc
 
 export default function StrikeArcs({ map }) {
   const canvasRef       = useRef(null)
@@ -24,26 +25,51 @@ export default function StrikeArcs({ map }) {
   const arcsRef         = useRef([])
   const currentIndexRef = useRef(0)
   const eventStartRef   = useRef(Date.now())
-  const pausedRef       = useRef(false)
+  const pausedRef       = useRef(false)       // paused while map is flying
+  const flyingRef       = useRef(false)       // true while map.fitBounds is in progress
   const hoveredEventRef = useRef(null)
+  const sizeRef         = useRef({ w: 0, h: 0 })
+  const lockedEventRef  = useRef(null)
 
+  const allEvents        = useStore(s => s.events)
   const filteredEvents   = useStore(s => s.filteredEvents)
   const setSelectedEvent = useStore(s => s.setSelectedEvent)
 
   const [currentEvent, setCurrentEvent] = useState(null)
   const [dateRange,    setDateRange]    = useState({ firstDate: 0, lastDate: 0, total: 0 })
+  const [lockedEvent,  setLockedEvent]  = useState(null)
 
-  // ── BUILD ARCS when filtered events change ───────────────────
+  // Keep ref in sync with state so animation closure can read it
+  useEffect(() => {
+    lockedEventRef.current = lockedEvent
+  }, [lockedEvent])
+
+  // ── WATCH selectedEvent — when cleared (close button), unlock ──
+  useEffect(() => {
+    const unsub = useStore.subscribe(
+      s => s.selectedEvent,
+      (val) => {
+        if (!val) {
+          setLockedEvent(null)
+          lockedEventRef.current = null
+          pausedRef.current      = false
+          eventStartRef.current  = Date.now()
+        }
+      }
+    )
+    return unsub
+  }, [])
+
+  // ── BUILD ARCS when all events change ───────────────────────
   useEffect(() => {
     if (!map) return
-
-    const strikes = filteredEvents.filter(ev => {
+    const strikePool = allEvents.length ? allEvents : filteredEvents
+    const strikes = strikePool.filter(ev => {
       if (ev.type !== 'Explosions/Remote violence') return false
       const subtype      = (ev.subtype || '').toLowerCase()
       const isProjectile = STRIKE_SUBTYPES.some(s => subtype.includes(s))
       if (!isProjectile) return false
       if (!ev.originLat || !ev.originLng) return false
-      // Relaxed distance check — 0.1 instead of 0.5
       const dist = Math.abs(ev.originLat - ev.lat) + Math.abs(ev.originLng - ev.lng)
       if (dist < 0.1) return false
       return true
@@ -65,22 +91,92 @@ export default function StrikeArcs({ map }) {
     currentIndexRef.current = 0
     eventStartRef.current   = Date.now()
     pausedRef.current       = false
+    flyingRef.current       = false
     hoveredEventRef.current = null
 
     setDateRange({ firstDate, lastDate, total: sorted.length })
     setCurrentEvent(sorted[0])
 
-  }, [map, filteredEvents])
+    // Zoom to first strike on load
+    zoomToEvent(sorted[0])
+
+  }, [map, allEvents])
+
+  // ── RESIZE OBSERVER ──────────────────────────────────────────
+  useEffect(() => {
+    if (!map) return
+    const container = map.getContainer()
+
+    const ro = new ResizeObserver(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const w = container.offsetWidth
+      const h = container.offsetHeight
+      if (w !== sizeRef.current.w || h !== sizeRef.current.h) {
+        canvas.width    = w
+        canvas.height   = h
+        sizeRef.current = { w, h }
+      }
+    })
+
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [map])
 
   // ── START ANIMATION once when map ready ──────────────────────
   useEffect(() => {
     if (!map) return
+
+    const container = map.getContainer()
+    const canvas    = canvasRef.current
+    if (canvas) {
+      canvas.width    = container.offsetWidth
+      canvas.height   = container.offsetHeight
+      sizeRef.current = { w: canvas.width, h: canvas.height }
+    }
+
     eventStartRef.current = Date.now()
+
+    const onMove = () => draw(arcsRef.current, Date.now() - eventStartRef.current)
+    map.on('move', onMove)
+
     startAnimation()
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current)
+      map.off('move', onMove)
     }
   }, [map])
+
+  // ── ZOOM HELPER — fits both origin and target, waits for move to end ──
+  function zoomToEvent(ev) {
+    if (!ev || !map) return
+    const originLng = parseFloat(ev.originLng)
+    const originLat = parseFloat(ev.originLat)
+    const targetLng = parseFloat(ev.lng)
+    const targetLat = parseFloat(ev.lat)
+    if (isNaN(originLng) || isNaN(originLat) || isNaN(targetLng) || isNaN(targetLat)) return
+
+    flyingRef.current     = true
+    pausedRef.current     = true
+    eventStartRef.current = Date.now()
+
+    map.fitBounds(
+      [
+        [Math.min(originLng, targetLng), Math.min(originLat, targetLat)],
+        [Math.max(originLng, targetLng), Math.max(originLat, targetLat)],
+      ],
+      { padding: 120, duration: FLY_MS, maxZoom: 8 }
+    )
+
+    // Wait for map to finish moving, then start the arc
+    const onMoveEnd = () => {
+      map.off('moveend', onMoveEnd)
+      flyingRef.current     = false
+      pausedRef.current     = false
+      eventStartRef.current = Date.now()
+    }
+    map.on('moveend', onMoveEnd)
+  }
 
   function startAnimation() {
     if (animRef.current) cancelAnimationFrame(animRef.current)
@@ -88,16 +184,21 @@ export default function StrikeArcs({ map }) {
     function animate() {
       const arcs = arcsRef.current
 
-      if (arcs.length > 0 && !pausedRef.current) {
+      if (arcs.length > 0 && !pausedRef.current && !flyingRef.current) {
         const elapsed    = Date.now() - eventStartRef.current
         const totalEvent = TRAVEL_MS + IMPACT_MS + 200
 
         if (elapsed > totalEvent) {
-          const nextIndex         = (currentIndexRef.current + 1) % arcs.length
-          currentIndexRef.current = nextIndex
-          eventStartRef.current   = Date.now()
-          if (!hoveredEventRef.current) {
-            setCurrentEvent(arcs[nextIndex])
+          if (lockedEventRef.current) {
+            // Loop same strike
+            eventStartRef.current = Date.now()
+          } else {
+            // Advance to next, zoom first
+            const nextIndex         = (currentIndexRef.current + 1) % arcs.length
+            currentIndexRef.current = nextIndex
+            const nextEv            = arcs[nextIndex]
+            if (!hoveredEventRef.current) setCurrentEvent(nextEv)
+            zoomToEvent(nextEv)
           }
         }
       }
@@ -110,7 +211,7 @@ export default function StrikeArcs({ map }) {
   }
 
   function latLngToPixel(lat, lng) {
-    const point = map.latLngToContainerPoint([lat, lng])
+    const point = map.project([lng, lat])
     return { x: point.x, y: point.y }
   }
 
@@ -147,25 +248,21 @@ export default function StrikeArcs({ map }) {
     if (travelProgress < 1) {
       const pos = getArcPoint(origin, target, travelProgress)
 
-      // Outer glow
       ctx.beginPath()
       ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2)
       ctx.fillStyle = color + '22'
       ctx.fill()
 
-      // Inner glow
       ctx.beginPath()
       ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2)
       ctx.fillStyle = color + '55'
       ctx.fill()
 
-      // Core
       ctx.beginPath()
       ctx.arc(pos.x, pos.y, 2.5, 0, Math.PI * 2)
       ctx.fillStyle = '#ffffff'
       ctx.fill()
 
-      // Tail
       for (let i = 1; i <= 8; i++) {
         const tailT  = Math.max(0, travelProgress - i * 0.02)
         const tailPt = getArcPoint(origin, target, tailT)
@@ -176,7 +273,6 @@ export default function StrikeArcs({ map }) {
         ctx.fill()
       }
 
-      // Origin pulse
       ctx.beginPath()
       ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2)
       ctx.fillStyle = color + '44'
@@ -219,7 +315,6 @@ export default function StrikeArcs({ map }) {
         ctx.fill()
       }
     } else {
-      // Lingering dot
       ctx.beginPath()
       ctx.arc(target.x, target.y, 3, 0, Math.PI * 2)
       ctx.fillStyle = color + '66'
@@ -227,36 +322,51 @@ export default function StrikeArcs({ map }) {
     }
   }
 
-    function draw(arcs, elapsed) {
+  function draw(arcs, elapsed) {
     const canvas = canvasRef.current
     if (!canvas || !map) return
 
-    const container = map.getContainer()
-    canvas.width    = container.offsetWidth
-    canvas.height   = container.offsetHeight
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    if (arcs.length === 0) return
+    if (arcs.length === 0 || flyingRef.current) return
 
-    // Always draw current animation — never freeze on hover
     const ev = arcs[currentIndexRef.current]
     if (ev) drawSingleArc(ctx, ev, elapsed, '#ff2a2a')
-    }
+  }
 
-    function handleHoverEvent(ev) {
+  function handleHoverEvent(ev) {
+    if (lockedEventRef.current) return
     hoveredEventRef.current = ev
-    pausedRef.current       = false  // don't pause
     setSelectedEvent(ev)
     setCurrentEvent(ev)
-    }
+  }
 
-    function handleLeaveEvent() {
+  function handleLeaveEvent() {
+    if (lockedEventRef.current) return
     hoveredEventRef.current = null
-    pausedRef.current       = false
     const current = arcsRef.current[currentIndexRef.current]
     if (current) setCurrentEvent(current)
-    }
+  }
+
+  function handlePanelClick(ev) {
+    setLockedEvent(ev)
+    lockedEventRef.current = ev
+    setSelectedEvent(ev)
+    zoomToEvent(ev)
+  }
+
+  function handleNavigate(dir) {
+    const arcs = arcsRef.current
+    if (!arcs.length) return
+    setLockedEvent(null)
+    lockedEventRef.current  = null
+    const next = (currentIndexRef.current + dir + arcs.length) % arcs.length
+    currentIndexRef.current = next
+    const ev = arcs[next]
+    setCurrentEvent(ev)
+    zoomToEvent(ev)
+  }
 
   if (!map) return null
 
@@ -274,6 +384,9 @@ export default function StrikeArcs({ map }) {
         dateRange={dateRange}
         onHoverEvent={handleHoverEvent}
         onLeaveEvent={handleLeaveEvent}
+        onNavigate={handleNavigate}
+        onPanelClick={handlePanelClick}
+        lockedEvent={lockedEvent}
       />
     </>
   )
@@ -282,6 +395,7 @@ export default function StrikeArcs({ map }) {
 function InfoPanel({
   currentEvent, arcs, currentIndex,
   dateRange, onHoverEvent, onLeaveEvent,
+  onNavigate, onPanelClick, lockedEvent,
 }) {
   const [, setTick] = useState(0)
 
@@ -296,7 +410,7 @@ function InfoPanel({
   const progress = arcs.length > 0 ? (currentIndex + 1) / arcs.length : 0
 
   return (
-    <div className="absolute bottom-12 left-3 z-[500] w-[270px]">
+    <div className="absolute bottom-8 right-3 z-[500] w-[270px]">
       <div className="bg-[#06090ef0] border border-threat/30 rounded overflow-hidden">
 
         {/* Date header */}
@@ -323,9 +437,11 @@ function InfoPanel({
         {/* Event details */}
         {ev && (
           <div
-            className="px-3 py-2.5 border-b border-border/40 cursor-pointer hover:bg-threat/5 transition-colors"
+            className={`px-3 py-2.5 border-b border-border/40 cursor-pointer transition-colors
+              ${lockedEvent ? 'bg-threat/10' : 'hover:bg-threat/5'}`}
             onMouseEnter={() => onHoverEvent(ev)}
             onMouseLeave={onLeaveEvent}
+            onClick={() => onPanelClick(ev)}
           >
             <div className="flex items-start gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-threat flex-shrink-0 mt-1" />
@@ -351,7 +467,9 @@ function InfoPanel({
               </div>
             </div>
             <div className="text-[8px] text-muted mt-1.5 text-right">
-              Hover to pause · shows in detail panel
+              {lockedEvent
+                ? '🔒 Locked · use ‹ › to advance'
+                : 'Click to lock & zoom · hover to pause'}
             </div>
           </div>
         )}
@@ -361,10 +479,21 @@ function InfoPanel({
           <div className="text-[8px] text-muted font-mono">
             {dateRange.total} TOTAL STRIKES
           </div>
-          <div className="text-[8px] text-muted font-mono">
-            {new Date(dateRange.firstDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-            {' → '}
-            {new Date(dateRange.lastDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+
+          {/* Nav buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onNavigate(-1)}
+              className="w-5 h-5 flex items-center justify-center border border-border2 text-muted hover:border-threat hover:text-threat rounded text-[10px] transition-all font-mono"
+            >
+              ‹
+            </button>
+            <button
+              onClick={() => onNavigate(1)}
+              className="w-5 h-5 flex items-center justify-center border border-border2 text-muted hover:border-threat hover:text-threat rounded text-[10px] transition-all font-mono"
+            >
+              ›
+            </button>
           </div>
         </div>
 

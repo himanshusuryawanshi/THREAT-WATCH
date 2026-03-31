@@ -7,7 +7,10 @@ import StrikeArcs from './StrikeArcs'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN
 
-export default function MapView({ onMapReady, layer, setLayer }) {
+const SIDEBAR_W   = 220   // must match App.jsx
+const TRANSITION  = 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+
+export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
   const mapRef      = useRef(null)
   const mapInstance = useRef(null)
   const popupRef    = useRef(null)
@@ -45,8 +48,6 @@ export default function MapView({ onMapReady, layer, setLayer }) {
       setFog(map)
       setReady(true)
     })
-    mapInstance.current = map
-    onMapReady(map)
 
     map.on('click', e => {
       if (!e.defaultPrevented) clearSelectedEvent()
@@ -101,8 +102,8 @@ export default function MapView({ onMapReady, layer, setLayer }) {
     ]
     const sources = ['events-data', 'events-heat', 'events-cluster']
 
-    layers.forEach(id => { try { if (map.getLayer(id))   map.removeLayer(id)   } catch(e) {} })
-    sources.forEach(id => { try { if (map.getSource(id)) map.removeSource(id) } catch(e) {} })
+    layers.forEach(id  => { try { if (map.getLayer(id))   map.removeLayer(id)   } catch(e) {} })
+    sources.forEach(id => { try { if (map.getSource(id)) map.removeSource(id)  } catch(e) {} })
   }
 
   // ── BUILD GEOJSON ────────────────────────────────────────────
@@ -115,16 +116,16 @@ export default function MapView({ onMapReady, layer, setLayer }) {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [e.lng, e.lat] },
           properties: {
-            id:      e.id,
-            type:    e.type,
-            fatal:   e.fatal || 0,
-            country: e.country,
+            id:       e.id,
+            type:     e.type,
+            fatal:    e.fatal || 0,
+            country:  e.country,
             location: e.location,
-            actor:   e.actor || '',
-            date:    e.date,
-            notes:   e.notes || '',
-            color:   getEventColor(e.type),
-            radius:  Math.max(4, Math.min(20, 4 + (e.fatal || 0) * 0.35)),
+            actor:    e.actor || '',
+            date:     e.date,
+            notes:    e.notes || '',
+            color:    getEventColor(e.type),
+            radius:   Math.max(4, Math.min(20, 4 + (e.fatal || 0) * 0.35)),
           },
         })),
     }
@@ -139,13 +140,12 @@ export default function MapView({ onMapReady, layer, setLayer }) {
     renderMarkers(map, events)
   }
 
-  // ── MARKERS — native GL layers, zero flicker ─────────────────
+  // ── MARKERS ──────────────────────────────────────────────────
   function renderMarkers(map, events) {
     const geojson = buildGeoJSON(events)
 
     map.addSource('events-data', { type: 'geojson', data: geojson })
 
-    // Glow layer
     map.addLayer({
       id:     'markers-glow',
       type:   'circle',
@@ -158,22 +158,20 @@ export default function MapView({ onMapReady, layer, setLayer }) {
       },
     })
 
-    // Main marker
     map.addLayer({
       id:     'markers-layer',
       type:   'circle',
       source: 'events-data',
       paint: {
-        'circle-radius':       ['get', 'radius'],
-        'circle-color':        ['get', 'color'],
-        'circle-opacity':      0.75,
-        'circle-stroke-width': 1.5,
-        'circle-stroke-color': ['get', 'color'],
+        'circle-radius':         ['get', 'radius'],
+        'circle-color':          ['get', 'color'],
+        'circle-opacity':        0.75,
+        'circle-stroke-width':   1.5,
+        'circle-stroke-color':   ['get', 'color'],
         'circle-stroke-opacity': 0.9,
       },
     })
 
-    // Hover popup
     map.on('mouseenter', 'markers-layer', e => {
       map.getCanvas().style.cursor = 'pointer'
       const props = e.features[0].properties
@@ -227,10 +225,7 @@ export default function MapView({ onMapReady, layer, setLayer }) {
 
   // ── HEATMAP ──────────────────────────────────────────────────
   function renderHeatmap(map, events) {
-    map.addSource('events-heat', {
-      type: 'geojson',
-      data: buildGeoJSON(events),
-    })
+    map.addSource('events-heat', { type: 'geojson', data: buildGeoJSON(events) })
     map.addLayer({
       id:     'heatmap-layer',
       type:   'heatmap',
@@ -268,9 +263,9 @@ export default function MapView({ onMapReady, layer, setLayer }) {
       source: 'events-cluster',
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#fbbf24', 10, '#f97316', 20, '#ff2a2a'],
-        'circle-radius': ['step', ['get', 'point_count'], 18, 10, 24, 20, 30],
-        'circle-opacity': 0.85,
+        'circle-color':        ['step', ['get', 'point_count'], '#fbbf24', 10, '#f97316', 20, '#ff2a2a'],
+        'circle-radius':       ['step', ['get', 'point_count'], 18, 10, 24, 20, 30],
+        'circle-opacity':      0.85,
         'circle-stroke-width': 1.5,
         'circle-stroke-color': '#ffffff22',
       },
@@ -293,11 +288,11 @@ export default function MapView({ onMapReady, layer, setLayer }) {
       source: 'events-cluster',
       filter: ['!', ['has', 'point_count']],
       paint: {
-        'circle-color':          '#ff2a2a',
-        'circle-radius':         5,
-        'circle-opacity':        0.8,
-        'circle-stroke-width':   1,
-        'circle-stroke-color':   '#ff2a2a44',
+        'circle-color':        '#ff2a2a',
+        'circle-radius':       5,
+        'circle-opacity':      0.8,
+        'circle-stroke-width': 1,
+        'circle-stroke-color': '#ff2a2a44',
       },
     })
     map.on('click', 'cluster-circles', e => {
@@ -310,41 +305,61 @@ export default function MapView({ onMapReady, layer, setLayer }) {
     })
   }
 
+  // ── Derived positions ────────────────────────────────────────
+  // 10px is Mapbox's default ctrl margin; we add SIDEBAR_W on top when open
+  const ctrlLeft    = sidebarOpen ? SIDEBAR_W + 10 : 10   // zoom +/- control
+  const badgeLeft   = ctrlLeft + 48                        // escalating badge (38px = ctrl width + gap)
+
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
 
-      {/* Popup + control styles */}
+      {/* ── Styles ────────────────────────────────────────────── */}
       <style>{`
         .tw-popup .mapboxgl-popup-content {
-          background:#06090e;border:0.5px solid #1e2d3d;
-          border-radius:6px;padding:10px 12px;
-          box-shadow:0 4px 20px rgba(0,0,0,0.6);
+          background: #06090e;
+          border: 0.5px solid #1e2d3d;
+          border-radius: 6px;
+          padding: 10px 12px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.6);
         }
         .tw-popup .mapboxgl-popup-tip { border-top-color:#06090e; border-bottom-color:#06090e; }
+
+        /* Zoom control — driven by CSS variable set in App.jsx */
+        .mapboxgl-ctrl-top-left {
+          left: var(--sidebar-offset, 10px) !important;
+          transition: ${TRANSITION};
+        }
+
         .mapboxgl-ctrl-group { background:#06090e !important; border:0.5px solid #1e2d3d !important; border-radius:6px !important; }
         .mapboxgl-ctrl-group button { background:transparent !important; }
         .mapboxgl-ctrl-icon { filter:invert(1) opacity(0.5); }
         .mapboxgl-ctrl-attrib { display:none; }
       `}</style>
 
-      {/* Map container — must be 100% width and height */}
-      <div ref={mapRef} style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} />
+      {/* Map container */}
+      <div ref={mapRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 
-      {/* Escalating badge */}
-      <div style={{ position:'absolute', top:10, left:48, zIndex:500 }}>
+      {/* ── Escalating badge — slides with sidebar ────────────── */}
+      <div style={{
+        position:   'absolute',
+        top:        10,
+        left:       badgeLeft,
+        zIndex:     500,
+        transition: TRANSITION,
+      }}>
         <div className="bg-threat/10 border border-threat/60 rounded px-2.5 py-1.5">
-          <div className="text-[8px] text-threat font-bold tracking-widest">ESCALATING</div>
-          <div className="text-[11px] text-white">Sudan +340% this week</div>
+          <div className="text-[10px] text-threat font-bold tracking-widest">ESCALATING</div>
+          <div className="text-[13px] text-white">Sudan +340% this week</div>
         </div>
       </div>
 
-      {/* Layer toggle */}
-      <div style={{ position:'absolute', top:10, right:10, zIndex:500, display:'flex', gap:4 }}>
+      {/* ── Layer toggle (top-right) ──────────────────────────── */}
+      <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 500, display: 'flex', gap: 4 }}>
         {[
-          { id:'markers', label:'MARKERS' },
-          { id:'heatmap', label:'HEATMAP' },
-          { id:'cluster', label:'CLUSTER' },
-          { id:'strikes', label:'STRIKES' },
+          { id: 'markers', label: 'MARKERS' },
+          { id: 'heatmap', label: 'HEATMAP' },
+          { id: 'cluster', label: 'CLUSTER' },
+          { id: 'strikes', label: 'STRIKES' },
         ].map(l => (
           <button key={l.id} onClick={() => setLayer(l.id)}
             className={`px-2.5 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all
@@ -356,14 +371,11 @@ export default function MapView({ onMapReady, layer, setLayer }) {
         ))}
       </div>
 
-      {/* Strike arcs */}
-      {layer === 'strikes' && <StrikeArcs map={mapInstance.current} />}
-
-      {/* Map style toggle */}
-      <div style={{ position:'absolute', top:40, right:10, zIndex:500, display:'flex', gap:4 }}>
+      {/* ── Map style toggle (below layer toggle) ────────────── */}
+      <div style={{ position: 'absolute', top: 40, right: 10, zIndex: 500, display: 'flex', gap: 4 }}>
         {[
-          { id:'dark',      label:'DARK'      },
-          { id:'satellite', label:'SATELLITE' },
+          { id: 'dark',      label: 'DARK'      },
+          { id: 'satellite', label: 'SATELLITE' },
         ].map(s => (
           <button key={s.id} onClick={() => setMapStyle(s.id)}
             className={`px-2.5 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all
@@ -375,13 +387,13 @@ export default function MapView({ onMapReady, layer, setLayer }) {
         ))}
       </div>
 
-      {/* Heatmap legend */}
+      {/* ── Heatmap legend ───────────────────────────────────── */}
       {layer === 'heatmap' && (
-        <div style={{ position:'absolute', bottom:40, right:10, zIndex:500 }}>
+        <div style={{ position: 'absolute', bottom: 40, right: 10, zIndex: 500 }}>
           <div className="bg-[#06090e]/90 border border-border2 rounded px-3 py-2">
             <div className="text-[8px] tracking-widest text-muted mb-2">INTENSITY</div>
             <div className="w-24 h-2 rounded-full" style={{
-              background:'linear-gradient(to right,#0ea5e9,#a855f7,#f97316,#ff2a2a,#fff)'
+              background: 'linear-gradient(to right,#0ea5e9,#a855f7,#f97316,#ff2a2a,#fff)',
             }}/>
             <div className="flex justify-between text-[8px] text-muted mt-1">
               <span>Low</span><span>High</span>
@@ -390,9 +402,9 @@ export default function MapView({ onMapReady, layer, setLayer }) {
         </div>
       )}
 
-      {/* Markers legend */}
+      {/* ── Markers legend ───────────────────────────────────── */}
       {layer === 'markers' && (
-        <div style={{ position:'absolute', bottom:10, left:10, zIndex:500 }}>
+        <div style={{ position: 'absolute', bottom: 10, right: 30, zIndex: 500 }}>
           <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
             <div className="text-[8px] tracking-widest text-muted mb-2">LEGEND</div>
             {[
@@ -403,13 +415,16 @@ export default function MapView({ onMapReady, layer, setLayer }) {
               ['Riots',             '#a855f7'],
             ].map(([label, color]) => (
               <div key={label} className="flex items-center gap-1.5 mb-1">
-                <span className="w-2 h-2 rounded-full" style={{ background:color }}/>
+                <span className="w-2 h-2 rounded-full" style={{ background: color }}/>
                 <span className="text-[9px] text-muted">{label}</span>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* ── Strike arcs ──────────────────────────────────────── */}
+      {layer === 'strikes' && <StrikeArcs map={mapInstance.current} />}
 
     </div>
   )

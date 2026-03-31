@@ -3,12 +3,12 @@ import EVENTS from '../data/events'
 
 const useStore = create((set, get) => ({
   events:         EVENTS,
-  filteredEvents: EVENTS,
+  filteredEvents: EVENTS.filter(ev => ev.type === 'Battles'),
   selectedEvent:  null,
   loading:        false,
   error:          null,
 
-  activeType:  'all',
+  activeType:  'Battles',
   dateFrom:    '2025-01-01',
   dateTo:      '2025-11-30',
   minFatal:    0,
@@ -26,7 +26,7 @@ const useStore = create((set, get) => ({
           loading:    false,
           dateFrom:   '2025-01-01',
           dateTo:     '2025-11-30',
-          activeType: 'all',
+          activeType: 'Battles',
           minFatal:   0,
           search:     '',
           dataSource: source,
@@ -89,7 +89,7 @@ const useStore = create((set, get) => ({
 
   resetFilters: () => {
     set({
-      activeType: 'all',
+      activeType: 'Battles',
       dateFrom:   '2025-01-01',
       dateTo:     '2025-11-30',
       minFatal:   0,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header      from './components/Header'
 import NewsStrip   from './components/NewsStrip'
@@ -12,22 +12,29 @@ import ComparePage from './pages/ComparePage'
 import ActorPage   from './pages/ActorPage'
 import useStore    from './store/useStore'
 
+const SIDEBAR_W = 220  // must match Sidebar width
+
 function Dashboard({ mapRef, setMapRef }) {
   const [layer,       setLayer]       = useState('markers')
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  // Sync CSS variable with initial state
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--sidebar-offset', `${SIDEBAR_W + 10}px`
+    )
+  }, [])
+
   function toggleSidebar() {
-    setSidebarOpen(o => !o)
-    // Call resize every frame during the 250ms transition
-    const start = Date.now()
-    const duration = 260
-    function tick() {
-      mapRef?.resize()
-      if (Date.now() - start < duration) {
-        requestAnimationFrame(tick)
-      }
-    }
-    requestAnimationFrame(tick)
+    setSidebarOpen(o => {
+      const next = !o
+      // CSS var drives the Mapbox zoom control position via MapView's <style>
+      document.documentElement.style.setProperty(
+        '--sidebar-offset',
+        next ? `${SIDEBAR_W + 10}px` : '10px'
+      )
+      return next
+    })
   }
 
   return (
@@ -36,59 +43,68 @@ function Dashboard({ mapRef, setMapRef }) {
       <NewsStrip />
       <div className="flex flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
 
-        {/* Sidebar — smooth width transition */}
+        {/* ── SIDEBAR ─────────────────────────────────────────────
+            Absolute overlay → map container never resizes → no
+            Mapbox WebGL black flash on open/close               */}
         <div style={{
-          width:      sidebarOpen ? '220px' : '0px',
-          flexShrink: 0,
-          overflow:   'hidden',
-          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          position:   'absolute',
+          top:        0,
+          left:       0,
+          bottom:     0,
+          zIndex:     500,
+          transform:  sidebarOpen ? 'translateX(0)' : `translateX(-${SIDEBAR_W}px)`,
+          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
         }}>
-          <div style={{ width: '220px', height: '100%' }}>
-            <Sidebar mapRef={mapRef} layer={layer} />
-          </div>
+          <Sidebar mapRef={mapRef} layer={layer} />
         </div>
 
-        {/* Toggle button — slides with sidebar */}
+        {/* ── TOGGLE BUTTON ────────────────────────────────────── */}
         <button
           onClick={toggleSidebar}
           style={{
-            position:   'absolute',
-            left:       sidebarOpen ? '220px' : '0px',
-            top:        '50%',
-            transform:  'translateY(-50%)',
-            zIndex:     600,
-            width:      '14px',
-            height:     '44px',
-            transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            background: '#06090e',
-            border:     '0.5px solid #1e2d3d',
-            borderLeft: sidebarOpen ? '0.5px solid #1e2d3d' : 'none',
-            borderRadius: '0 4px 4px 0',
-            cursor:     'pointer',
-            display:    'flex',
-            alignItems: 'center',
+            position:       'absolute',
+            left:           sidebarOpen ? `${SIDEBAR_W}px` : '0px',
+            top:            '50%',
+            transform:      'translateY(-50%)',
+            zIndex:         600,
+            width:          '14px',
+            height:         '44px',
+            transition:     'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+            background:     '#06090e',
+            border:         '0.5px solid #1e2d3d',
+            borderLeft:     sidebarOpen ? '0.5px solid #1e2d3d' : 'none',
+            borderRadius:   '0 4px 4px 0',
+            cursor:         'pointer',
+            display:        'flex',
+            alignItems:     'center',
             justifyContent: 'center',
           }}
           className="hover:border-threat/50 group"
         >
-          <span style={{
-            fontSize:   '10px',
-            color:      '#6b7280',
-            transition: 'color 0.15s',
-            lineHeight: 1,
-          }}
+          <span
+            style={{ fontSize: '10px', color: '#6b7280', transition: 'color 0.15s', lineHeight: 1 }}
             className="group-hover:text-white"
           >
             {sidebarOpen ? '‹' : '›'}
           </span>
         </button>
 
-        {/* Map — takes remaining space, smooth resize */}
+        {/* ── MAP ─────────────────────────────────────────────────
+            flex:1 = full width minus RightPanel.
+            Sidebar is absolute so this div NEVER changes width.  */}
         <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
-          <MapView onMapReady={setMapRef} layer={layer} setLayer={setLayer} />
+          <MapView
+            onMapReady={setMapRef}
+            layer={layer}
+            setLayer={setLayer}
+            sidebarOpen={sidebarOpen}
+          />
         </div>
 
+        {/* ── RIGHT PANEL ──────────────────────────────────────── 
+            Normal flex child — keeps map controls visible        */}
         <RightPanel />
+
       </div>
       <Timeline />
       <StatusBar />
@@ -100,7 +116,6 @@ export default function App() {
   const [mapRef, setMapRef] = useState(null)
   const location            = useLocation()
 
-  // Restore live data when navigating back to dashboard
   useEffect(() => {
     if (location.pathname === '/') {
       const { dataSource, events, loadLiveEvents } = useStore.getState()
@@ -110,7 +125,6 @@ export default function App() {
     }
   }, [location.pathname])
 
-  // Keyboard shortcuts
   useEffect(() => {
     function handleKey(e) {
       if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return
@@ -125,7 +139,7 @@ export default function App() {
 
       switch (e.key.toLowerCase()) {
         case 'r': resetFilters(); break
-        case 'f': if (mapRef) mapRef.flyTo([20, 10], 2); break
+        case 'f': if (mapRef) mapRef.flyTo({ center: [10, 20], zoom: 2 }); break
         case '1': setActiveType('all'); break
         case '2': setActiveType('Battles'); break
         case '3': setActiveType('Explosions/Remote violence'); break
@@ -140,7 +154,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/"             element={<Dashboard mapRef={mapRef} setMapRef={setMapRef} />} />
+      <Route path="/"              element={<Dashboard mapRef={mapRef} setMapRef={setMapRef} />} />
       <Route path="/country/:name" element={<CountryPage />} />
       <Route path="/compare"       element={<ComparePage />} />
       <Route path="/actor/:name"   element={<ActorPage />} />
