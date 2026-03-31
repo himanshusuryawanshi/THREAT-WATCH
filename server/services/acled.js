@@ -17,7 +17,6 @@ const ACTOR_ORIGINS = {
   'houthi':                        { lat: 15.369, lng: 44.191 },
   'ttp':                           { lat: 33.720, lng: 73.060 },
   'al-shabaab':                    { lat: 2.046,  lng: 45.341 },
-  'al shabaab':                    { lat: 2.046,  lng: 45.341 },
   'rsf':                           { lat: 15.552, lng: 32.532 },
   'rapid support':                 { lat: 15.552, lng: 32.532 },
   'jnim':                          { lat: 17.570, lng: -3.996 },

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header      from './components/Header'
 import NewsStrip   from './components/NewsStrip'
-import Sidebar     from './components/Sidebar'
+import Sidebar     from './components/SideBar'
 import MapView     from './components/MapView'
 import RightPanel  from './components/RightPanel'
 import Timeline    from './components/Timeline'
@@ -16,34 +16,78 @@ function Dashboard({ mapRef, setMapRef }) {
   const [layer,       setLayer]       = useState('markers')
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  function toggleSidebar() {
+    setSidebarOpen(o => !o)
+    // Call resize every frame during the 250ms transition
+    const start = Date.now()
+    const duration = 260
+    function tick() {
+      mapRef?.resize()
+      if (Date.now() - start < duration) {
+        requestAnimationFrame(tick)
+      }
+    }
+    requestAnimationFrame(tick)
+  }
+
   return (
     <div className="flex flex-col h-screen bg-dark overflow-hidden">
       <Header />
       <NewsStrip />
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
 
-        {/* Sidebar toggle button */}
-        <button
-          onClick={() => setSidebarOpen(o => !o)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-[600] bg-panel border border-border2 border-l-0 rounded-r px-1 py-3 text-muted hover:text-white hover:border-threat/50 transition-all"
-          style={{ left: sidebarOpen ? '220px' : '0px', transition: 'left 0.2s ease' }}
-        >
-          <div className="text-[10px] font-mono">{sidebarOpen ? '<<' : '>>'}</div>
-        </button>
-
-        {/* Sidebar */}
-        <div
-          style={{
-            width:     sidebarOpen ? '220px' : '0px',
-            overflow:  'hidden',
-            transition: 'width 0.2s ease',
-            flexShrink: 0,
-          }}
-        >
-          <Sidebar mapRef={mapRef} layer={layer} />
+        {/* Sidebar — smooth width transition */}
+        <div style={{
+          width:      sidebarOpen ? '220px' : '0px',
+          flexShrink: 0,
+          overflow:   'hidden',
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        }}>
+          <div style={{ width: '220px', height: '100%' }}>
+            <Sidebar mapRef={mapRef} layer={layer} />
+          </div>
         </div>
 
-        <MapView onMapReady={setMapRef} layer={layer} setLayer={setLayer} />
+        {/* Toggle button — slides with sidebar */}
+        <button
+          onClick={toggleSidebar}
+          style={{
+            position:   'absolute',
+            left:       sidebarOpen ? '220px' : '0px',
+            top:        '50%',
+            transform:  'translateY(-50%)',
+            zIndex:     600,
+            width:      '14px',
+            height:     '44px',
+            transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+            background: '#06090e',
+            border:     '0.5px solid #1e2d3d',
+            borderLeft: sidebarOpen ? '0.5px solid #1e2d3d' : 'none',
+            borderRadius: '0 4px 4px 0',
+            cursor:     'pointer',
+            display:    'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          className="hover:border-threat/50 group"
+        >
+          <span style={{
+            fontSize:   '10px',
+            color:      '#6b7280',
+            transition: 'color 0.15s',
+            lineHeight: 1,
+          }}
+            className="group-hover:text-white"
+          >
+            {sidebarOpen ? '‹' : '›'}
+          </span>
+        </button>
+
+        {/* Map — takes remaining space, smooth resize */}
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+          <MapView onMapReady={setMapRef} layer={layer} setLayer={setLayer} />
+        </div>
+
         <RightPanel />
       </div>
       <Timeline />
