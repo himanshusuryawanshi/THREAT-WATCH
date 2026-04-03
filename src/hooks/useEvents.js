@@ -1,30 +1,36 @@
 import { useState, useEffect } from 'react'
-import MOCK_EVENTS from '../data/events'
 
 const API_URL = 'http://localhost:3001/api/events'
 
-export default function useEvents(source = 'demo') {
-  const [events,  setEvents]  = useState(MOCK_EVENTS)
-  const [loading, setLoading] = useState(false)
+export default function useEvents({
+  source   = 'acled',
+  limit    = 5000,
+  country  = null,
+  type     = null,
+  dateFrom = null,
+  dateTo   = null,
+} = {}) {
+  const [events,  setEvents]  = useState([])
+  const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
 
   useEffect(() => {
-    if (source === 'demo') {
-      setEvents(MOCK_EVENTS)
-      setLoading(false)
-      setError(null)
-      return
-    }
-
     setLoading(true)
     setError(null)
 
-    fetch(`${API_URL}?source=${source}&limit=3000`)
+    // Build query string from active filters
+    const params = new URLSearchParams({ source, limit })
+    if (country)  params.set('country', country)
+    if (type)     params.set('type',    type)
+    if (dateFrom) params.set('from',    dateFrom)
+    if (dateTo)   params.set('to',      dateTo)
+
+    fetch(`${API_URL}?${params}`)
       .then(r => r.json())
       .then(data => {
         if (data.status === 200) {
           setEvents(data.events)
-          console.log(`[useEvents] loaded ${data.events.length} events from ${source}`)
+          console.log(`[useEvents] loaded ${data.events.length} events`)
         } else {
           throw new Error(data.error || 'API error')
         }
@@ -32,10 +38,11 @@ export default function useEvents(source = 'demo') {
       .catch(err => {
         console.error('[useEvents] failed:', err.message)
         setError(err.message)
-        setEvents(MOCK_EVENTS) // fallback to mock
+        setEvents([])
       })
       .finally(() => setLoading(false))
-  }, [source])
+
+  }, [source, limit, country, type, dateFrom, dateTo])
 
   return { events, loading, error }
 }

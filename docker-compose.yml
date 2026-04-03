@@ -1,0 +1,42 @@
+services:
+
+  postgres:
+    image: imresamu/postgis:16-3.4 
+    container_name: threatwatch_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threatwatch
+      POSTGRES_PASSWORD: threatwatch_dev
+      POSTGRES_DB: threatwatch
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/001_events.sql:/docker-entrypoint-initdb.d/001_events.sql
+      - ./db/002_conflicts.sql:/docker-entrypoint-initdb.d/002_conflicts.sql
+      - ./db/003_statements.sql:/docker-entrypoint-initdb.d/003_statements.sql
+      - ./db/004_indexes.sql:/docker-entrypoint-initdb.d/004_indexes.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U threatwatch']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: threatwatch_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

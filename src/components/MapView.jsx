@@ -97,8 +97,9 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
 
     const layers = [
       'markers-layer', 'markers-glow', 'pulse-layer',
-      'heatmap-layer', 'cluster-circles', 'cluster-count',
-      'unclustered-point',
+      'heatmap-layer',
+      'cluster-glow', 'cluster-circles', 'cluster-count',
+      'unclustered-point', 'unclustered-glow',
     ]
     const sources = ['events-data', 'events-heat', 'events-cluster']
 
@@ -256,20 +257,56 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       cluster:        true,
       clusterMaxZoom: 10,
       clusterRadius:  50,
+      clusterProperties: {
+        // Sum fatalities across the cluster for popup display
+        totalFatal: ['+', ['get', 'fatal']],
+      },
     })
+
+    // ── Cluster glow ───────────────────────────────────────────
+    map.addLayer({
+      id:     'cluster-glow',
+      type:   'circle',
+      source: 'events-cluster',
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': [
+          'step', ['get', 'point_count'],
+          '#fbbf24', 10, '#f97316', 50, '#ff2a2a',
+        ],
+        'circle-radius': [
+          'step', ['get', 'point_count'],
+          28, 10, 38, 50, 52, 200, 66,
+        ],
+        'circle-opacity': 0.12,
+        'circle-blur':    1.5,
+      },
+    })
+
+    // ── Cluster circles ────────────────────────────────────────
     map.addLayer({
       id:     'cluster-circles',
       type:   'circle',
       source: 'events-cluster',
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color':        ['step', ['get', 'point_count'], '#fbbf24', 10, '#f97316', 20, '#ff2a2a'],
-        'circle-radius':       ['step', ['get', 'point_count'], 18, 10, 24, 20, 30],
-        'circle-opacity':      0.85,
+        'circle-color': [
+          'step', ['get', 'point_count'],
+          '#fbbf24',       // yellow  < 10
+          10,  '#f97316',  // orange  10–49
+          50,  '#ff2a2a',  // red     50+
+        ],
+        'circle-radius': [
+          'step', ['get', 'point_count'],
+          18, 10, 26, 50, 36, 200, 46,
+        ],
+        'circle-opacity':      0.88,
         'circle-stroke-width': 1.5,
-        'circle-stroke-color': '#ffffff22',
+        'circle-stroke-color': '#ffffff18',
       },
     })
+
+    // ── Count label ────────────────────────────────────────────
     map.addLayer({
       id:     'cluster-count',
       type:   'symbol',
@@ -278,37 +315,131 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       layout: {
         'text-field': '{point_count_abbreviated}',
         'text-font':  ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-        'text-size':  11,
+        'text-size':  12,
       },
       paint: { 'text-color': '#ffffff' },
     })
+
+    // ── Unclustered glow ───────────────────────────────────────
+    map.addLayer({
+      id:     'unclustered-glow',
+      type:   'circle',
+      source: 'events-cluster',
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-radius':  ['*', ['get', 'radius'], 1.8],
+        'circle-color':   ['get', 'color'],
+        'circle-opacity': 0.15,
+        'circle-blur':    1,
+      },
+    })
+
+    // ── Unclustered points — color-coded by event type ─────────
     map.addLayer({
       id:     'unclustered-point',
       type:   'circle',
       source: 'events-cluster',
       filter: ['!', ['has', 'point_count']],
       paint: {
-        'circle-color':        '#ff2a2a',
-        'circle-radius':       5,
-        'circle-opacity':      0.8,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#ff2a2a44',
+        'circle-radius':         ['get', 'radius'],
+        'circle-color':          ['get', 'color'],
+        'circle-opacity':        0.8,
+        'circle-stroke-width':   1.5,
+        'circle-stroke-color':   ['get', 'color'],
+        'circle-stroke-opacity': 0.7,
       },
     })
+
+    // ── Click cluster → zoom in ────────────────────────────────
     map.on('click', 'cluster-circles', e => {
       const f = map.queryRenderedFeatures(e.point, { layers: ['cluster-circles'] })
       map.getSource('events-cluster').getClusterExpansionZoom(
         f[0].properties.cluster_id, (err, zoom) => {
-          if (!err) map.easeTo({ center: f[0].geometry.coordinates, zoom })
+          if (!err) map.easeTo({ center: f[0].geometry.coordinates, zoom: zoom + 0.5, duration: 500 })
         }
       )
+    })
+
+    // ── Hover cluster → popup with aggregate stats ─────────────
+    map.on('mouseenter', 'cluster-circles', e => {
+      map.getCanvas().style.cursor = 'pointer'
+      const p     = e.features[0].properties
+      const count = p.point_count
+      const fatal = p.totalFatal || 0
+      const color = count >= 50 ? '#ff2a2a' : count >= 10 ? '#f97316' : '#fbbf24'
+
+      if (popupRef.current) popupRef.current.remove()
+      popupRef.current = new mapboxgl.Popup({
+        closeButton: false, closeOnClick: false, offset: 14, className: 'tw-popup',
+      })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`
+          <div style="font-family:'Share Tech Mono',monospace;min-width:150px">
+            <div style="color:${color};font-size:9px;letter-spacing:2px;margin-bottom:4px">CLUSTER</div>
+            <div style="color:#fff;font-size:18px;font-family:'Oswald',sans-serif;font-weight:600;margin-bottom:2px">
+              ${count.toLocaleString()} events
+            </div>
+            <div style="color:#ff2a2a;font-size:10px;margin-top:4px">💀 ${fatal.toLocaleString()} fatalities</div>
+            <div style="color:#6b7280;font-size:9px;margin-top:6px">Click to expand</div>
+          </div>
+        `)
+        .addTo(map)
+    })
+    map.on('mouseleave', 'cluster-circles', () => {
+      map.getCanvas().style.cursor = ''
+      if (popupRef.current) { popupRef.current.remove(); popupRef.current = null }
+    })
+
+    // ── Hover unclustered point → same popup as markers ────────
+    map.on('mouseenter', 'unclustered-point', e => {
+      map.getCanvas().style.cursor = 'pointer'
+      const props = e.features[0].properties
+      const color = props.color
+
+      setSelectedEvent({
+        id:       props.id,
+        type:     props.type,
+        fatal:    props.fatal,
+        country:  props.country,
+        location: props.location,
+        actor:    props.actor,
+        date:     props.date,
+        notes:    props.notes,
+      })
+
+      if (popupRef.current) popupRef.current.remove()
+      popupRef.current = new mapboxgl.Popup({
+        closeButton: false, closeOnClick: false, offset: 14, className: 'tw-popup',
+      })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`
+          <div style="min-width:180px;font-family:'Share Tech Mono',monospace">
+            <div style="color:${color};font-size:9px;letter-spacing:2px;margin-bottom:4px">
+              ${props.type.toUpperCase()}
+            </div>
+            <div style="color:#fff;font-size:13px;font-family:'Oswald',sans-serif;margin-bottom:6px">
+              ${props.location}, ${props.country}
+            </div>
+            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${props.date}</div>
+            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(props.actor||'').substring(0,30)}</div>
+            <div style="color:#ff2a2a;font-size:10px">💀 ${props.fatal} fatalities</div>
+          </div>
+        `)
+        .addTo(map)
+    })
+    map.on('mouseleave', 'unclustered-point', () => {
+      map.getCanvas().style.cursor = ''
+      if (popupRef.current) { popupRef.current.remove(); popupRef.current = null }
+    })
+    map.on('click', 'unclustered-point', e => {
+      e.preventDefault()
+      window.location.href = `/country/${encodeURIComponent(e.features[0].properties.country)}`
     })
   }
 
   // ── Derived positions ────────────────────────────────────────
-  // 10px is Mapbox's default ctrl margin; we add SIDEBAR_W on top when open
-  const ctrlLeft    = sidebarOpen ? SIDEBAR_W + 10 : 10   // zoom +/- control
-  const badgeLeft   = ctrlLeft + 48                        // escalating badge (38px = ctrl width + gap)
+  const ctrlLeft  = sidebarOpen ? SIDEBAR_W + 10 : 10
+  const badgeLeft = ctrlLeft + 48
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
@@ -324,7 +455,6 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
         }
         .tw-popup .mapboxgl-popup-tip { border-top-color:#06090e; border-bottom-color:#06090e; }
 
-        /* Zoom control — driven by CSS variable set in App.jsx */
         .mapboxgl-ctrl-top-left {
           left: var(--sidebar-offset, 10px) !important;
           transition: ${TRANSITION};
@@ -339,7 +469,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       {/* Map container */}
       <div ref={mapRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 
-      {/* ── Escalating badge — slides with sidebar ────────────── */}
+      {/* ── Escalating badge ──────────────────────────────────── */}
       <div style={{
         position:   'absolute',
         top:        10,
@@ -371,7 +501,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
         ))}
       </div>
 
-      {/* ── Map style toggle (below layer toggle) ────────────── */}
+      {/* ── Map style toggle ──────────────────────────────────── */}
       <div style={{ position: 'absolute', top: 40, right: 10, zIndex: 500, display: 'flex', gap: 4 }}>
         {[
           { id: 'dark',      label: 'DARK'      },
@@ -419,6 +549,28 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
                 <span className="text-[9px] text-muted">{label}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Cluster legend ───────────────────────────────────── */}
+      {layer === 'cluster' && (
+        <div style={{ position: 'absolute', bottom: 10, right: 30, zIndex: 500 }}>
+          <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
+            <div className="text-[8px] tracking-widest text-muted mb-2">CLUSTER SIZE</div>
+            {[
+              ['1–9 events',   '#fbbf24'],
+              ['10–49 events', '#f97316'],
+              ['50+ events',   '#ff2a2a'],
+            ].map(([label, color]) => (
+              <div key={label} className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: color }}/>
+                <span className="text-[9px] text-muted">{label}</span>
+              </div>
+            ))}
+            <div className="text-[8px] text-muted mt-2 pt-2 border-t border-border2">
+              Click cluster to expand
+            </div>
           </div>
         </div>
       )}

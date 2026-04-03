@@ -17,7 +17,7 @@ const STRIKE_SUBTYPES = [
 
 const TRAVEL_MS  = 3000
 const IMPACT_MS  = 1200
-const FLY_MS     = 1200  // how long to wait for map to finish flying before starting arc
+const FLY_MS     = 1200
 
 export default function StrikeArcs({ map }) {
   const canvasRef       = useRef(null)
@@ -25,8 +25,8 @@ export default function StrikeArcs({ map }) {
   const arcsRef         = useRef([])
   const currentIndexRef = useRef(0)
   const eventStartRef   = useRef(Date.now())
-  const pausedRef       = useRef(false)       // paused while map is flying
-  const flyingRef       = useRef(false)       // true while map.fitBounds is in progress
+  const pausedRef       = useRef(false)
+  const flyingRef       = useRef(false)
   const hoveredEventRef = useRef(null)
   const sizeRef         = useRef({ w: 0, h: 0 })
   const lockedEventRef  = useRef(null)
@@ -39,7 +39,6 @@ export default function StrikeArcs({ map }) {
   const [dateRange,    setDateRange]    = useState({ firstDate: 0, lastDate: 0, total: 0 })
   const [lockedEvent,  setLockedEvent]  = useState(null)
 
-  // Keep ref in sync with state so animation closure can read it
   useEffect(() => {
     lockedEventRef.current = lockedEvent
   }, [lockedEvent])
@@ -60,10 +59,18 @@ export default function StrikeArcs({ map }) {
     return unsub
   }, [])
 
-  // ── BUILD ARCS when all events change ───────────────────────
+  // ── BUILD ARCS ───────────────────────────────────────────────
+  // Use filteredEvents if the sidebar has applied a filter (e.g. by country),
+  // otherwise fall back to all events so nothing is empty on first load.
   useEffect(() => {
     if (!map) return
-    const strikePool = allEvents.length ? allEvents : filteredEvents
+
+    // filteredEvents may be Battles-filtered on the main layer.
+    // Only use it if it actually contains some Explosions events,
+    // otherwise fall back to allEvents.
+    const hasExplosions = filteredEvents.some(e => e.type === 'Explosions/Remote violence')
+    const strikePool    = hasExplosions ? filteredEvents : allEvents
+
     const strikes = strikePool.filter(ev => {
       if (ev.type !== 'Explosions/Remote violence') return false
       const subtype      = (ev.subtype || '').toLowerCase()
@@ -96,11 +103,9 @@ export default function StrikeArcs({ map }) {
 
     setDateRange({ firstDate, lastDate, total: sorted.length })
     setCurrentEvent(sorted[0])
-
-    // Zoom to first strike on load
     zoomToEvent(sorted[0])
 
-  }, [map, allEvents])
+  }, [map, allEvents, filteredEvents])
 
   // ── RESIZE OBSERVER ──────────────────────────────────────────
   useEffect(() => {
@@ -123,7 +128,7 @@ export default function StrikeArcs({ map }) {
     return () => ro.disconnect()
   }, [map])
 
-  // ── START ANIMATION once when map ready ──────────────────────
+  // ── START ANIMATION ──────────────────────────────────────────
   useEffect(() => {
     if (!map) return
 
@@ -147,7 +152,7 @@ export default function StrikeArcs({ map }) {
     }
   }, [map])
 
-  // ── ZOOM HELPER — fits both origin and target, waits for move to end ──
+  // ── ZOOM HELPER ──────────────────────────────────────────────
   function zoomToEvent(ev) {
     if (!ev || !map) return
     const originLng = parseFloat(ev.originLng)
@@ -168,7 +173,6 @@ export default function StrikeArcs({ map }) {
       { padding: 120, duration: FLY_MS, maxZoom: 8 }
     )
 
-    // Wait for map to finish moving, then start the arc
     const onMoveEnd = () => {
       map.off('moveend', onMoveEnd)
       flyingRef.current     = false
@@ -190,10 +194,8 @@ export default function StrikeArcs({ map }) {
 
         if (elapsed > totalEvent) {
           if (lockedEventRef.current) {
-            // Loop same strike
             eventStartRef.current = Date.now()
           } else {
-            // Advance to next, zoom first
             const nextIndex         = (currentIndexRef.current + 1) % arcs.length
             currentIndexRef.current = nextIndex
             const nextEv            = arcs[nextIndex]
@@ -480,7 +482,6 @@ function InfoPanel({
             {dateRange.total} TOTAL STRIKES
           </div>
 
-          {/* Nav buttons */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => onNavigate(-1)}
