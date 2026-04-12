@@ -1,20 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import useStore from '../store/useStore'
 
-const STRIKE_SUBTYPES = [
-  'air/drone strike',
-  'shelling/artillery/missile attack',
-  'remote explosive/landmine/ied',
-  'guided missile',
-  'drone strike',
-  'airstrike',
-  'missile attack',
-  'rocket attack',
-  'mortar attack',
-  'artillery',
-  'bombing',
-]
-
+const API_BASE   = 'http://localhost:3001'
 const TRAVEL_MS  = 3000
 const IMPACT_MS  = 1200
 const FLY_MS     = 1200
@@ -31,8 +18,6 @@ export default function StrikeArcs({ map }) {
   const sizeRef         = useRef({ w: 0, h: 0 })
   const lockedEventRef  = useRef(null)
 
-  const allEvents        = useStore(s => s.events)
-  const filteredEvents   = useStore(s => s.filteredEvents)
   const setSelectedEvent = useStore(s => s.setSelectedEvent)
 
   const [currentEvent, setCurrentEvent] = useState(null)
@@ -59,53 +44,56 @@ export default function StrikeArcs({ map }) {
     return unsub
   }, [])
 
-  // ── BUILD ARCS ───────────────────────────────────────────────
-  // Use filteredEvents if the sidebar has applied a filter (e.g. by country),
-  // otherwise fall back to all events so nothing is empty on first load.
+  // ── FETCH ARCS FROM API ──────────────────────────────────────
+  // Uses /api/events/arcs which already filters: source=UCDP,
+  // geo_precision<=2, origin_lat/lng IS NOT NULL — no date restriction.
   useEffect(() => {
     if (!map) return
 
-    // filteredEvents may be Battles-filtered on the main layer.
-    // Only use it if it actually contains some Explosions events,
-    // otherwise fall back to allEvents.
-    const hasExplosions = filteredEvents.some(e => e.type === 'Explosions/Remote violence')
-    const strikePool    = hasExplosions ? filteredEvents : allEvents
+    fetch(`${API_BASE}/api/events/arcs`)
+      .then(r => r.json())
+      .then(data => {
+        // API returns [{id, origin:[lat,lng], destination:[lat,lng], date, fatalities, actor1, actor2, country, type, subtype}]
+        const arcs = (Array.isArray(data) ? data : [])
+          .map(ev => ({
+            ...ev,
+            originLat: ev.origin?.[0],
+            originLng: ev.origin?.[1],
+            lat:       ev.destination?.[0],
+            lng:       ev.destination?.[1],
+          }))
+          .filter(ev => {
+            if (!ev.originLat || !ev.originLng || !ev.lat || !ev.lng) return false
+            const dist = Math.abs(ev.originLat - ev.lat) + Math.abs(ev.originLng - ev.lng)
+            return dist >= 0.1
+          })
 
-    const strikes = strikePool.filter(ev => {
-      if (ev.type !== 'Explosions/Remote violence') return false
-      const subtype      = (ev.subtype || '').toLowerCase()
-      const isProjectile = STRIKE_SUBTYPES.some(s => subtype.includes(s))
-      if (!isProjectile) return false
-      if (!ev.originLat || !ev.originLng) return false
-      const dist = Math.abs(ev.originLat - ev.lat) + Math.abs(ev.originLng - ev.lng)
-      if (dist < 0.1) return false
-      return true
-    })
+        if (arcs.length === 0) {
+          arcsRef.current = []
+          currentIndexRef.current = 0
+          setDateRange({ firstDate: 0, lastDate: 0, total: 0 })
+          setCurrentEvent(null)
+          return
+        }
 
-    if (strikes.length === 0) {
-      arcsRef.current = []
-      currentIndexRef.current = 0
-      setDateRange({ firstDate: 0, lastDate: 0, total: 0 })
-      setCurrentEvent(null)
-      return
-    }
+        const sorted    = [...arcs].sort((a, b) => new Date(a.date) - new Date(b.date))
+        const firstDate = new Date(sorted[0].date).getTime()
+        const lastDate  = new Date(sorted[sorted.length - 1].date).getTime()
 
-    const sorted    = [...strikes].sort((a, b) => new Date(a.date) - new Date(b.date))
-    const firstDate = new Date(sorted[0].date).getTime()
-    const lastDate  = new Date(sorted[sorted.length - 1].date).getTime()
+        arcsRef.current         = sorted
+        currentIndexRef.current = 0
+        eventStartRef.current   = Date.now()
+        pausedRef.current       = false
+        flyingRef.current       = false
+        hoveredEventRef.current = null
 
-    arcsRef.current         = sorted
-    currentIndexRef.current = 0
-    eventStartRef.current   = Date.now()
-    pausedRef.current       = false
-    flyingRef.current       = false
-    hoveredEventRef.current = null
+        setDateRange({ firstDate, lastDate, total: sorted.length })
+        setCurrentEvent(sorted[0])
+        zoomToEvent(sorted[0])
+      })
+      .catch(err => console.warn('[StrikeArcs] fetch failed:', err.message))
 
-    setDateRange({ firstDate, lastDate, total: sorted.length })
-    setCurrentEvent(sorted[0])
-    zoomToEvent(sorted[0])
-
-  }, [map, allEvents, filteredEvents])
+  }, [map])
 
   // ── RESIZE OBSERVER ──────────────────────────────────────────
   useEffect(() => {
@@ -450,15 +438,15 @@ function InfoPanel({
               <div className="flex-1">
                 <div className="text-[11px] text-white font-mono font-medium leading-tight">
                   {ev.location}, {ev.country}
-                  {ev.fatal > 0 && (
-                    <span className="text-threat ml-1.5">· {ev.fatal} killed</span>
+                  {(ev.fatalities || 0) > 0 && (
+                    <span className="text-threat ml-1.5">· {ev.fatalities} killed</span>
                   )}
                 </div>
                 <div className="text-[9px] text-muted font-mono mt-0.5">
                   {(ev.subtype || ev.type || '').replace('/Remote violence', '')}
                 </div>
                 <div className="text-[9px] text-blue-400 font-mono mt-0.5 truncate">
-                  {(ev.actor || '').substring(0, 35)}
+                  {(ev.actor1 || '').substring(0, 35)}
                 </div>
                 {ev.notes && (
                   <div className="text-[8px] text-muted font-mono mt-1 leading-relaxed"

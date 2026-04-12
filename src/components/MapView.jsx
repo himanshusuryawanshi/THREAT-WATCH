@@ -5,18 +5,22 @@ import useStore from '../store/useStore'
 import { getEventColor } from '../utils/constants'
 import StrikeArcs from './StrikeArcs'
 
+const API_BASE = 'http://localhost:3001'
+
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN
 
 const SIDEBAR_W   = 220   // must match App.jsx
 const TRANSITION  = 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
 
 export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
-  const mapRef      = useRef(null)
-  const mapInstance = useRef(null)
-  const popupRef    = useRef(null)
+  const mapRef        = useRef(null)
+  const mapInstance   = useRef(null)
+  const popupRef      = useRef(null)
+  const fireCancelRef = useRef(null)
 
-  const [mapStyle, setMapStyle] = useState('dark')
-  const [ready,    setReady]    = useState(false)
+  const [mapStyle,  setMapStyle]  = useState('dark')
+  const [ready,     setReady]     = useState(false)
+  const [firesData, setFiresData] = useState([])
 
   const filteredEvents     = useStore(s => s.filteredEvents)
   const setSelectedEvent   = useStore(s => s.setSelectedEvent)
@@ -74,12 +78,23 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
     })
   }, [mapStyle])
 
-  // ── RENDER WHEN READY, EVENTS, OR LAYER CHANGES ──────────────
+  // ── FETCH FIRMS FIRES WHEN FIRES LAYER ACTIVE ────────────────
+  useEffect(() => {
+    if (layer !== 'fires' || !ready) return
+    fetch(`${API_BASE}/api/fires?conflict_only=true&days=7&limit=2000`)
+      .then(r => r.json())
+      .then(({ fires }) => setFiresData(fires || []))
+      .catch(() => setFiresData([]))
+  }, [layer, ready])
+
+  // ── RENDER WHEN READY, EVENTS, LAYER, OR FIRES CHANGE ────────
   useEffect(() => {
     const map = mapInstance.current
     if (!map || !ready) return
-    renderLayer(map, filteredEvents, layer)
-  }, [filteredEvents, layer, ready])
+    // Cancel any running fires animation
+    if (fireCancelRef.current) { fireCancelRef.current(); fireCancelRef.current = null }
+    renderLayer(map, filteredEvents, layer, firesData)
+  }, [filteredEvents, layer, ready, firesData])
 
   function setFog(map) {
     map.setFog({
@@ -100,8 +115,9 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       'heatmap-layer',
       'cluster-glow', 'cluster-circles', 'cluster-count',
       'unclustered-point', 'unclustered-glow',
+      'fires-pulse', 'fires-core',
     ]
-    const sources = ['events-data', 'events-heat', 'events-cluster']
+    const sources = ['events-data', 'events-heat', 'events-cluster', 'fires-data']
 
     layers.forEach(id  => { try { if (map.getLayer(id))   map.removeLayer(id)   } catch(e) {} })
     sources.forEach(id => { try { if (map.getSource(id)) map.removeSource(id)  } catch(e) {} })
@@ -117,27 +133,28 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [e.lng, e.lat] },
           properties: {
-            id:       e.id,
-            type:     e.type,
-            fatal:    e.fatal || 0,
-            country:  e.country,
-            location: e.location,
-            actor:    e.actor || '',
-            date:     e.date,
-            notes:    e.notes || '',
-            color:    getEventColor(e.type),
-            radius:   Math.max(4, Math.min(20, 4 + (e.fatal || 0) * 0.35)),
+            id:         e.id,
+            type:       e.type,
+            fatalities: e.fatalities || 0,
+            country:    e.country,
+            location:   e.location,
+            actor1:     e.actor1 || '',
+            date:       e.date,
+            notes:      e.notes || '',
+            color:      getEventColor(e.type),
+            radius:     Math.max(4, Math.min(20, 4 + (e.fatalities || 0) * 0.35)),
           },
         })),
     }
   }
 
   // ── RENDER LAYER ─────────────────────────────────────────────
-  function renderLayer(map, events, mode) {
+  function renderLayer(map, events, mode, fires) {
     cleanupLayers(map)
     if (mode === 'strikes') return
     if (mode === 'heatmap') { renderHeatmap(map, events); return }
     if (mode === 'cluster') { renderCluster(map, events); return }
+    if (mode === 'fires')   { renderFires(map, fires);   return }
     renderMarkers(map, events)
   }
 
@@ -179,14 +196,14 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       const color = props.color
 
       setSelectedEvent({
-        id:       props.id,
-        type:     props.type,
-        fatal:    props.fatal,
-        country:  props.country,
-        location: props.location,
-        actor:    props.actor,
-        date:     props.date,
-        notes:    props.notes,
+        id:         props.id,
+        type:       props.type,
+        fatalities: props.fatalities,
+        country:    props.country,
+        location:   props.location,
+        actor1:     props.actor1,
+        date:       props.date,
+        notes:      props.notes,
       })
 
       if (popupRef.current) popupRef.current.remove()
@@ -206,8 +223,8 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
               ${props.location}, ${props.country}
             </div>
             <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${props.date}</div>
-            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(props.actor||'').substring(0,30)}</div>
-            <div style="color:#ff2a2a;font-size:10px">💀 ${props.fatal} fatalities</div>
+            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(props.actor1||'').substring(0,30)}</div>
+            <div style="color:#ff2a2a;font-size:10px">💀 ${props.fatalities} fatalities</div>
           </div>
         `)
         .addTo(map)
@@ -224,6 +241,118 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
     })
   }
 
+  // ── FIRES (NASA FIRMS) ───────────────────────────────────────
+  function renderFires(map, fires) {
+    if (!fires || !fires.length) {
+      // Show placeholder text in console — no crashes
+      console.log('[fires] no fire data — FIRMS_API_KEY may not be set')
+      return
+    }
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: fires
+        .filter(f => f.lat && f.lng)
+        .map(f => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [f.lng, f.lat] },
+          properties: {
+            id:             f.id,
+            frp:            f.frp || 0,
+            confidence:     f.confidence || 'nominal',
+            inConflictZone: f.inConflictZone,
+            acq_date:       f.acq_date,
+            // radius scales with Fire Radiative Power: min 4, max 18
+            radius: Math.max(4, Math.min(18, 4 + (f.frp || 0) * 0.1)),
+          },
+        })),
+    }
+
+    map.addSource('fires-data', { type: 'geojson', data: geojson })
+
+    // Outer pulse ring — animated below
+    map.addLayer({
+      id:     'fires-pulse',
+      type:   'circle',
+      source: 'fires-data',
+      paint: {
+        'circle-radius':  8,
+        'circle-color':   '#f97316',
+        'circle-opacity': 0.4,
+        'circle-blur':    0.6,
+      },
+    })
+
+    // Core dot — solid orange, size by FRP
+    map.addLayer({
+      id:     'fires-core',
+      type:   'circle',
+      source: 'fires-data',
+      paint: {
+        'circle-radius':         ['get', 'radius'],
+        'circle-color':          [
+          'match', ['get', 'confidence'],
+          'high',    '#ef4444',   // bright red for high confidence
+          'nominal', '#f97316',   // orange
+                     '#fb923c',   // lighter orange for low
+        ],
+        'circle-opacity':        0.85,
+        'circle-stroke-width':   1,
+        'circle-stroke-color':   '#fff',
+        'circle-stroke-opacity': 0.25,
+      },
+    })
+
+    // Popup on hover
+    map.on('mouseenter', 'fires-core', e => {
+      map.getCanvas().style.cursor = 'pointer'
+      const p = e.features[0].properties
+      if (popupRef.current) popupRef.current.remove()
+      popupRef.current = new mapboxgl.Popup({
+        closeButton: false, closeOnClick: false, offset: 12, className: 'tw-popup',
+      })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`
+          <div style="min-width:170px;font-family:'Share Tech Mono',monospace">
+            <div style="color:#f97316;font-size:9px;letter-spacing:2px;margin-bottom:4px">THERMAL ANOMALY</div>
+            <div style="color:#fff;font-size:12px;font-family:'Oswald',sans-serif;margin-bottom:6px">
+              ${p.inConflictZone ? '🔴 In Conflict Zone' : '🟡 Non-Conflict Zone'}
+            </div>
+            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">🛰️ ${p.acq_date || 'Recent'}</div>
+            <div style="color:#f97316;font-size:10px;margin-bottom:2px">
+              FRP: ${p.frp ? p.frp.toFixed(1) + ' MW' : 'N/A'}
+            </div>
+            <div style="color:#6b7280;font-size:9px">Confidence: ${(p.confidence||'').toUpperCase()}</div>
+          </div>
+        `)
+        .addTo(map)
+    })
+    map.on('mouseleave', 'fires-core', () => {
+      map.getCanvas().style.cursor = ''
+      if (popupRef.current) { popupRef.current.remove(); popupRef.current = null }
+    })
+
+    // Pulse animation — expand + fade the outer ring every 2s
+    let pulseStart = null
+    let rafId      = null
+    let cancelled  = false
+    function animate(timestamp) {
+      if (cancelled || !map.getLayer('fires-pulse')) return
+      if (!pulseStart) pulseStart = timestamp
+      const t = ((timestamp - pulseStart) % 2000) / 2000   // 0..1 cycle
+      const r = 6 + t * 18
+      const o = 0.5 * (1 - t)
+      try {
+        map.setPaintProperty('fires-pulse', 'circle-radius',  r)
+        map.setPaintProperty('fires-pulse', 'circle-opacity', o)
+        map.triggerRepaint()
+      } catch { return }
+      rafId = requestAnimationFrame(animate)
+    }
+    rafId = requestAnimationFrame(animate)
+    fireCancelRef.current = () => { cancelled = true; if (rafId) cancelAnimationFrame(rafId) }
+  }
+
   // ── HEATMAP ──────────────────────────────────────────────────
   function renderHeatmap(map, events) {
     map.addSource('events-heat', { type: 'geojson', data: buildGeoJSON(events) })
@@ -232,7 +361,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       type:   'heatmap',
       source: 'events-heat',
       paint: {
-        'heatmap-weight':    ['interpolate', ['linear'], ['get', 'fatal'], 0, 0.2, 50, 1],
+        'heatmap-weight':    ['interpolate', ['linear'], ['get', 'fatalities'], 0, 0.2, 50, 1],
         'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
         'heatmap-color': [
           'interpolate', ['linear'], ['heatmap-density'],
@@ -258,8 +387,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       clusterMaxZoom: 10,
       clusterRadius:  50,
       clusterProperties: {
-        // Sum fatalities across the cluster for popup display
-        totalFatal: ['+', ['get', 'fatal']],
+        totalFatalities: ['+', ['get', 'fatalities']],
       },
     })
 
@@ -365,7 +493,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       map.getCanvas().style.cursor = 'pointer'
       const p     = e.features[0].properties
       const count = p.point_count
-      const fatal = p.totalFatal || 0
+      const fatal = p.totalFatalities || 0
       const color = count >= 50 ? '#ff2a2a' : count >= 10 ? '#f97316' : '#fbbf24'
 
       if (popupRef.current) popupRef.current.remove()
@@ -397,14 +525,14 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       const color = props.color
 
       setSelectedEvent({
-        id:       props.id,
-        type:     props.type,
-        fatal:    props.fatal,
-        country:  props.country,
-        location: props.location,
-        actor:    props.actor,
-        date:     props.date,
-        notes:    props.notes,
+        id:         props.id,
+        type:       props.type,
+        fatalities: props.fatalities,
+        country:    props.country,
+        location:   props.location,
+        actor1:     props.actor1,
+        date:       props.date,
+        notes:      props.notes,
       })
 
       if (popupRef.current) popupRef.current.remove()
@@ -421,8 +549,8 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
               ${props.location}, ${props.country}
             </div>
             <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${props.date}</div>
-            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(props.actor||'').substring(0,30)}</div>
-            <div style="color:#ff2a2a;font-size:10px">💀 ${props.fatal} fatalities</div>
+            <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(props.actor1||'').substring(0,30)}</div>
+            <div style="color:#ff2a2a;font-size:10px">💀 ${props.fatalities} fatalities</div>
           </div>
         `)
         .addTo(map)
@@ -437,12 +565,13 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
     })
   }
 
-  // ── Derived positions ────────────────────────────────────────
-  const ctrlLeft  = sidebarOpen ? SIDEBAR_W + 10 : 10
-  const badgeLeft = ctrlLeft + 48
+  const ctrlLeft = sidebarOpen ? SIDEBAR_W + 10 : 10
 
   return (
-    <div style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
+    <div
+      style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%', height: '100%',
+               '--sidebar-offset': `${ctrlLeft}px` }}
+    >
 
       {/* ── Styles ────────────────────────────────────────────── */}
       <style>{`
@@ -469,19 +598,7 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
       {/* Map container */}
       <div ref={mapRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 
-      {/* ── Escalating badge ──────────────────────────────────── */}
-      <div style={{
-        position:   'absolute',
-        top:        10,
-        left:       badgeLeft,
-        zIndex:     500,
-        transition: TRANSITION,
-      }}>
-        <div className="bg-threat/10 border border-threat/60 rounded px-2.5 py-1.5">
-          <div className="text-[10px] text-threat font-bold tracking-widest">ESCALATING</div>
-          <div className="text-[13px] text-white">Sudan +340% this week</div>
-        </div>
-      </div>
+      {/* Escalation badge — populated by API in Phase 2 */}
 
       {/* ── Layer toggle (top-right) ──────────────────────────── */}
       <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 500, display: 'flex', gap: 4 }}>
@@ -489,13 +606,16 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
           { id: 'markers', label: 'MARKERS' },
           { id: 'heatmap', label: 'HEATMAP' },
           { id: 'cluster', label: 'CLUSTER' },
+          { id: 'fires',   label: 'FIRES'   },
           { id: 'strikes', label: 'STRIKES' },
         ].map(l => (
           <button key={l.id} onClick={() => setLayer(l.id)}
             className={`px-2.5 py-1 rounded text-[9px] font-bold tracking-widest border font-mono transition-all
-              ${layer === l.id
-                ? 'bg-threat/15 border-threat/50 text-threat'
-                : 'bg-[#06090e]/90 border-border2 text-muted hover:text-[#c9d1d9]'}`}>
+              ${layer === l.id && l.id === 'fires'
+                ? 'bg-orange-500/15 border-orange-500/50 text-orange-400'
+                : layer === l.id
+                  ? 'bg-threat/15 border-threat/50 text-threat'
+                  : 'bg-[#06090e]/90 border-border2 text-muted hover:text-[#c9d1d9]'}`}>
             {l.label}
           </button>
         ))}
@@ -570,6 +690,28 @@ export default function MapView({ onMapReady, layer, setLayer, sidebarOpen }) {
             ))}
             <div className="text-[8px] text-muted mt-2 pt-2 border-t border-border2">
               Click cluster to expand
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fires legend ────────────────────────────────────── */}
+      {layer === 'fires' && (
+        <div style={{ position: 'absolute', bottom: 10, right: 30, zIndex: 500 }}>
+          <div className="bg-[#06090e]/90 border border-border2 rounded px-2.5 py-2">
+            <div className="text-[8px] tracking-widest text-muted mb-2">THERMAL ANOMALIES</div>
+            {[
+              ['High confidence', '#ef4444'],
+              ['Nominal confidence', '#f97316'],
+              ['Low confidence', '#fb923c'],
+            ].map(([label, color]) => (
+              <div key={label} className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: color }}/>
+                <span className="text-[9px] text-muted">{label}</span>
+              </div>
+            ))}
+            <div className="text-[8px] text-muted mt-2 pt-2 border-t border-border2">
+              NASA FIRMS · VIIRS SNPP NRT
             </div>
           </div>
         </div>

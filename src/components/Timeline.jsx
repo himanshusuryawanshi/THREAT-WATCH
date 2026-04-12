@@ -1,39 +1,72 @@
 import { useEffect, useRef, useState } from 'react'
 import useStore from '../store/useStore'
-import EVENTS from '../data/events'
 
-const START      = new Date('2025-01-01')
-const END        = new Date('2025-11-30')
-const TOTAL_MS   = END - START
-const TOTAL_DAYS = Math.ceil(TOTAL_MS / 86400000)
-const PLAY_WIN   = 0.08 // playhead window size = ~1 week
+const PLAY_WIN = 0.08   // playhead window width as fraction of total range
 
 export default function Timeline() {
-  const canvasRef    = useRef(null)
-  const dragRef      = useRef(null)
-  const selRef       = useRef({ start: 0, end: 1 })       // user window
-  const playheadRef  = useRef(0)                           // playhead position (0..1)
-  const playRef      = useRef(null)
-  const [label,    setLabel]   = useState('Jan 1 – Nov 30, 2025')
-  const [playing,  setPlaying] = useState(false)
+  const events    = useStore(s => s.events)
   const setDateRange = useStore(s => s.setDateRange)
 
-  // Build daily bins
-  const bins = new Array(TOTAL_DAYS).fill(0)
-  EVENTS.forEach(ev => {
-    const d = Math.floor((new Date(ev.date) - START) / 86400000)
-    if (d >= 0 && d < TOTAL_DAYS) bins[d]++
-  })
-  const maxBin = Math.max(...bins, 1)
+  const canvasRef   = useRef(null)
+  const dragRef     = useRef(null)
+  const selRef      = useRef({ start: 0, end: 1 })
+  const playheadRef = useRef(0)
+  const playRef     = useRef(null)
 
-  useEffect(() => {
-    draw(selRef.current, null)
-    const obs = new ResizeObserver(() => draw(selRef.current, playRef._head))
-    if (canvasRef.current) obs.observe(canvasRef.current)
-    return () => obs.disconnect()
-  }, [])
+  const [label,   setLabel]   = useState('')
+  const [playing, setPlaying] = useState(false)
 
-  // ── DRAW ────────────────────────────────────────────────────────────────
+  // ── Compute dynamic date range from live events ──────────────────────────
+  const { START, END, TOTAL_MS, TOTAL_DAYS, bins, maxBin } = (() => {
+    const now   = new Date()
+    // Default window: last 90 days ending today
+    const end   = new Date(now)
+    const start = new Date(now)
+    start.setDate(start.getDate() - 90)
+
+    // If we have events, expand/clamp to their range
+    if (events.length > 0) {
+      const dates = events.map(e => new Date(e.date)).filter(d => !isNaN(d))
+      if (dates.length) {
+        const minDate = new Date(Math.min(...dates))
+        const maxDate = new Date(Math.max(...dates))
+        start.setTime(Math.min(start.getTime(), minDate.getTime()))
+        end.setTime(Math.max(end.getTime(), maxDate.getTime()))
+      }
+    }
+
+    const totalMs   = end - start
+    const totalDays = Math.max(1, Math.ceil(totalMs / 86400000))
+    const binsArr   = new Array(totalDays).fill(0)
+
+    events.forEach(ev => {
+      const d = Math.floor((new Date(ev.date) - start) / 86400000)
+      if (d >= 0 && d < totalDays) binsArr[d]++
+    })
+
+    return {
+      START:      start,
+      END:        end,
+      TOTAL_MS:   totalMs,
+      TOTAL_DAYS: totalDays,
+      bins:       binsArr,
+      maxBin:     Math.max(...binsArr, 1),
+    }
+  })()
+
+  // ── Date helpers ─────────────────────────────────────────────────────────
+  function toDateStr(ratio) {
+    return new Date(START.getTime() + ratio * TOTAL_MS)
+      .toISOString().split('T')[0]
+  }
+
+  function makeLabel(s) {
+    const fmt = r => new Date(START.getTime() + r * TOTAL_MS)
+      .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    return `${fmt(s.start)} – ${fmt(s.end)}`
+  }
+
+  // ── Canvas draw ──────────────────────────────────────────────────────────
   function draw(sel, playhead = null) {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -48,100 +81,61 @@ export default function Timeline() {
 
     const barW = Math.max(1, W / TOTAL_DAYS - 0.3)
 
-    // Draw bars
     bins.forEach((count, i) => {
-      const x      = (i / TOTAL_DAYS) * W
-      const h      = (count / maxBin) * (H - 6)
-      const pos    = i / TOTAL_DAYS
-      const inSel  = pos >= sel.start && pos <= sel.end
+      const x     = (i / TOTAL_DAYS) * W
+      const h     = (count / maxBin) * (H - 6)
+      const pos   = i / TOTAL_DAYS
+      const inSel = pos >= sel.start && pos <= sel.end
+      const inPlay = playhead !== null && pos >= playhead && pos <= playhead + PLAY_WIN
 
-      // If playhead active, highlight only playhead zone
-      let inPlay = false
-      if (playhead !== null) {
-        inPlay = pos >= playhead && pos <= playhead + PLAY_WIN
-      }
-
-      ctx.fillStyle   = inPlay ? '#ffffff'
-                      : inSel  ? '#a855f7'
-                      : '#1e3a4a'
-      ctx.globalAlpha = inPlay ? 0.9
-                      : inSel  ? 0.6
-                      : 0.3
+      ctx.fillStyle   = inPlay ? '#ffffff' : inSel ? '#a855f7' : '#1e3a4a'
+      ctx.globalAlpha = inPlay ? 0.9       : inSel ? 0.6       : 0.3
       ctx.fillRect(x, H - h, barW, h)
     })
     ctx.globalAlpha = 1
 
-    // User selection shading
+    // Selection overlay
     const sx = sel.start * W
     const ex = sel.end   * W
-    ctx.fillStyle = 'rgba(168,85,247,0.07)'
+    ctx.fillStyle   = 'rgba(168,85,247,0.07)'
     ctx.fillRect(sx, 0, ex - sx, H)
-
-    // User selection border
     ctx.strokeStyle = 'rgba(168,85,247,0.6)'
     ctx.lineWidth   = 1
     ctx.strokeRect(sx, 0, ex - sx, H)
 
-    // Left handle
+    // Handles
     ctx.fillStyle = '#a855f7'
-    ctx.beginPath()
-    ctx.roundRect(sx - 3, 0, 6, H, 2)
-    ctx.fill()
+    ctx.beginPath(); ctx.roundRect(sx - 3, 0, 6, H, 2); ctx.fill()
+    ctx.beginPath(); ctx.roundRect(ex - 3, 0, 6, H, 2); ctx.fill()
 
-    // Right handle
-    ctx.beginPath()
-    ctx.roundRect(ex - 3, 0, 6, H, 2)
-    ctx.fill()
-
-    // Playhead slider (moving window)
+    // Playhead
     if (playhead !== null) {
       const px = playhead * W
-      const pw = PLAY_WIN  * W
-
+      const pw = PLAY_WIN * W
       ctx.fillStyle = 'rgba(255,255,255,0.08)'
       ctx.fillRect(px, 0, pw, H)
-
-      // Playhead left line
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'
       ctx.lineWidth   = 2
-      ctx.beginPath()
-      ctx.moveTo(px, 0)
-      ctx.lineTo(px, H)
-      ctx.stroke()
-
-      // Playhead right line
-      ctx.beginPath()
-      ctx.moveTo(px + pw, 0)
-      ctx.lineTo(px + pw, H)
-      ctx.stroke()
-
-      // Top label on playhead
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(px + pw, 0); ctx.lineTo(px + pw, H); ctx.stroke()
       ctx.fillStyle = 'rgba(255,255,255,0.9)'
       ctx.font      = '8px Share Tech Mono, monospace'
-      const dateStr = toDateStr(playhead)
-      ctx.fillText(dateStr, Math.min(px + 3, W - 70), 9)
+      ctx.fillText(toDateStr(playhead), Math.min(px + 3, W - 70), 9)
     }
 
-    // Month labels
+    // Month labels — compute evenly spaced from actual date range
     ctx.fillStyle = '#4b5563'
     ctx.font      = '9px Share Tech Mono, monospace'
-    ;['Jan', 'Feb', 'Mar'].forEach((m, i) => {
-      ctx.fillText(m, (i / 2.4) * W + 4, H - 2)
-    })
+    const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'short' })
+    const tickCount = Math.min(6, Math.floor(TOTAL_DAYS / 14))
+    for (let t = 0; t <= tickCount; t++) {
+      const ratio = t / tickCount
+      const d     = new Date(START.getTime() + ratio * TOTAL_MS)
+      ctx.fillText(monthFmt.format(d), ratio * W + 2, H - 2)
+    }
   }
 
-  // ── HELPERS ─────────────────────────────────────────────────────────────
-  function toDateStr(ratio) {
-    return new Date(START.getTime() + ratio * TOTAL_MS)
-      .toISOString().split('T')[0]
-  }
-
-  function makeLabel(s) {
-    const fmt = r => new Date(START.getTime() + r * TOTAL_MS)
-      .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${fmt(s.start)} – ${fmt(s.end)}, 2025`
-  }
-
+  // ── Mouse helpers ────────────────────────────────────────────────────────
   function getX(e) {
     const rect = canvasRef.current.getBoundingClientRect()
     return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
@@ -152,110 +146,63 @@ export default function Timeline() {
     setLabel(makeLabel(s))
   }
 
-  // ── MOUSE ───────────────────────────────────────────────────────────────
   function onMouseDown(e) {
     if (playing) return
-    const x    = getX(e)
-    const s    = selRef.current
-    const near = 0.025
-
-    if (Math.abs(x - s.start) < near) {
-      dragRef.current = { type: 'start' }
-    } else if (Math.abs(x - s.end) < near) {
-      dragRef.current = { type: 'end' }
-    } else if (x > s.start && x < s.end) {
-      dragRef.current = { type: 'move', ox: x, os: { ...s } }
-    } else {
-      // Draw brand new window
+    const x = getX(e); const s = selRef.current; const near = 0.025
+    if      (Math.abs(x - s.start) < near)  dragRef.current = { type: 'start' }
+    else if (Math.abs(x - s.end)   < near)  dragRef.current = { type: 'end' }
+    else if (x > s.start && x < s.end)      dragRef.current = { type: 'move', ox: x, os: { ...s } }
+    else {
       dragRef.current = { type: 'draw', anchor: x }
-      const next = { start: x, end: x }
-      selRef.current = next
-      draw(next, null)
+      const next = { start: x, end: x }; selRef.current = next; draw(next, null)
     }
   }
 
   function onMouseMove(e) {
     if (!dragRef.current || playing) return
-    const x = getX(e)
-    const d = dragRef.current
-    const s = selRef.current
+    const x = getX(e); const d = dragRef.current; const s = selRef.current
     let next = { ...s }
-
-    if (d.type === 'start') {
-      next.start = Math.min(x, s.end - 0.02)
-    } else if (d.type === 'end') {
-      next.end = Math.max(x, s.start + 0.02)
-    } else if (d.type === 'move') {
-      const dx = x - d.ox
-      const w  = d.os.end - d.os.start
+    if      (d.type === 'start') next.start = Math.min(x, s.end - 0.02)
+    else if (d.type === 'end')   next.end   = Math.max(x, s.start + 0.02)
+    else if (d.type === 'move') {
+      const dx = x - d.ox; const w = d.os.end - d.os.start
       next.start = Math.max(0, Math.min(1 - w, d.os.start + dx))
       next.end   = next.start + w
     } else if (d.type === 'draw') {
-      if (x >= d.anchor) {
-        next.start = d.anchor
-        next.end   = Math.min(1, x)
-      } else {
-        next.start = Math.max(0, x)
-        next.end   = d.anchor
-      }
+      if (x >= d.anchor) { next.start = d.anchor; next.end = Math.min(1, x) }
+      else               { next.start = Math.max(0, x); next.end = d.anchor }
       if (next.end - next.start < 0.02) next.end = next.start + 0.02
     }
-
-    selRef.current = next
-    draw(next, null)
+    selRef.current = next; draw(next, null)
   }
 
   function onMouseUp() {
     if (!dragRef.current) return
-    dragRef.current = null
-    commitWindow(selRef.current)
+    dragRef.current = null; commitWindow(selRef.current)
   }
 
-  // ── PLAY ────────────────────────────────────────────────────────────────
+  // ── Play ─────────────────────────────────────────────────────────────────
   function togglePlay() {
     if (playing) {
       clearInterval(playRef.current)
-      playheadRef.current = 0
-      setPlaying(false)
-      draw(selRef.current, null)
-      commitWindow(selRef.current)
+      playheadRef.current = 0; setPlaying(false)
+      draw(selRef.current, null); commitWindow(selRef.current)
       return
     }
-
     const sel = selRef.current
-    // Playhead starts at left edge of user window
-    playheadRef.current = sel.start
-    playRef._head       = sel.start
-    setPlaying(true)
-
+    playheadRef.current = sel.start; playRef._head = sel.start; setPlaying(true)
+    const speed = (sel.end - sel.start) / 100
     let tick = 0
-    const speed = (sel.end - sel.start) / 100 // cross window in 100 ticks
-
     playRef.current = setInterval(() => {
-      const ph  = playheadRef.current
-      const sel = selRef.current
-
-      // Stop when playhead reaches right edge of window
-      if (ph + PLAY_WIN >= sel.end) {
-        clearInterval(playRef.current)
-        playheadRef.current = 0
-        setPlaying(false)
-        draw(sel, null)
-        commitWindow(sel)
-        return
+      const ph = playheadRef.current; const s = selRef.current
+      if (ph + PLAY_WIN >= s.end) {
+        clearInterval(playRef.current); playheadRef.current = 0
+        setPlaying(false); draw(s, null); commitWindow(s); return
       }
-
       const nextPh = ph + speed
-      playheadRef.current = nextPh
-      playRef._head       = nextPh
-
-      // Always draw canvas
-      draw(sel, nextPh)
-
-      tick++
-      // Update map every 4 ticks so it doesn't flood
-      if (tick % 4 === 0) {
-        const playEnd = Math.min(sel.end, nextPh + PLAY_WIN)
+      playheadRef.current = nextPh; playRef._head = nextPh; draw(s, nextPh)
+      if (++tick % 4 === 0) {
+        const playEnd = Math.min(s.end, nextPh + PLAY_WIN)
         setDateRange(toDateStr(nextPh), toDateStr(playEnd))
         setLabel(makeLabel({ start: nextPh, end: playEnd }))
       }
@@ -263,14 +210,19 @@ export default function Timeline() {
   }
 
   function resetAll() {
-    clearInterval(playRef.current)
-    playheadRef.current = 0
-    setPlaying(false)
-    const full = { start: 0, end: 1 }
-    selRef.current = full
-    draw(full, null)
-    commitWindow(full)
+    clearInterval(playRef.current); playheadRef.current = 0; setPlaying(false)
+    const full = { start: 0, end: 1 }; selRef.current = full
+    draw(full, null); commitWindow(full)
   }
+
+  // ── Effects ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setLabel(makeLabel(selRef.current))
+    draw(selRef.current, null)
+    const obs = new ResizeObserver(() => draw(selRef.current, playRef._head || null))
+    if (canvasRef.current) obs.observe(canvasRef.current)
+    return () => obs.disconnect()
+  }, [events, TOTAL_DAYS])   // redraw when live events change
 
   useEffect(() => () => clearInterval(playRef.current), [])
 
@@ -279,8 +231,8 @@ export default function Timeline() {
       <div className="flex items-center gap-2 mb-1.5">
         <span className="text-[8px] tracking-[2.5px] text-muted">TIMELINE</span>
 
-        <span className="text-[9px] text-purple-400 bg-purple-400/10 border border-purple-400/30 px-2 py-0.5 rounded min-w-[168px] text-center">
-          {label}
+        <span className="text-[9px] text-purple-400 bg-purple-400/10 border border-purple-400/30 px-2 py-0.5 rounded min-w-[200px] text-center">
+          {label || makeLabel(selRef.current)}
         </span>
 
         <button onClick={togglePlay}

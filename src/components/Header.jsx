@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
+
+const API_BASE = 'http://localhost:3001'
 
 const EVENT_TYPES = [
   'Battles',
@@ -26,8 +28,16 @@ export default function Header() {
   const navigate = useNavigate()
   const inputRef = useRef(null)
 
-  const [suggestions, setSuggestions] = useState({ countries: [], types: [] })
-  const [showDrop,    setShowDrop]    = useState(false)
+  const [suggestions,   setSuggestions]   = useState({ countries: [], types: [] })
+  const [showDrop,      setShowDrop]      = useState(false)
+  const [alertSummary,  setAlertSummary]  = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/alerts`)
+      .then(r => r.json())
+      .then(d => setAlertSummary(d.summary || null))
+      .catch(() => {})
+  }, [])
 
   function getCountries() {
     const events = useStore.getState().events
@@ -228,7 +238,13 @@ export default function Header() {
 
       {/* Threat meter */}
       <div className="bg-threat/10 border border-threat/30 rounded px-3 py-1 text-center">
-        <div className="text-threat text-base font-bold leading-none">7.2</div>
+        <div className="text-threat text-base font-bold leading-none">
+          {alertSummary
+            ? alertSummary.critical > 0 ? 'HIGH'
+              : alertSummary.elevated > 0 ? 'MED'
+              : 'LOW'
+            : '—'}
+        </div>
         <div className="text-[8px] tracking-widest text-muted">THREAT LEVEL</div>
       </div>
 
@@ -237,10 +253,12 @@ export default function Header() {
       <Stat value={stats.fatalities} label="FATALITIES" color="text-orange-400" />
       <Stat value={stats.countries}  label="COUNTRIES"  color="text-yellow-400" />
 
-      {/* Trend */}
+      {/* Alert count */}
       <div className="text-center px-1">
-        <div className="text-purple-400 text-base font-bold">+12%</div>
-        <div className="text-[8px] tracking-widest text-muted">VS LAST WK</div>
+        <div className="text-purple-400 text-base font-bold">
+          {alertSummary ? (alertSummary.critical || 0) + (alertSummary.elevated || 0) : '—'}
+        </div>
+        <div className="text-[8px] tracking-widest text-muted">ACTIVE ALERTS</div>
       </div>
 
       {/* Nav links */}

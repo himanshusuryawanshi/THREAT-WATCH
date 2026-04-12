@@ -3,6 +3,11 @@ import useStore from '../store/useStore'
 import { EVENT_TYPES, getEventColor } from '../utils/constants'
 import Chart from 'chart.js/auto'
 
+const API_BASE = 'http://localhost:3001'
+
+function today()    { return new Date().toISOString().split('T')[0] }
+function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0] }
+
 export default function Sidebar({ mapRef, layer }) {
   const {
     filteredEvents, activeType, setActiveType,
@@ -42,18 +47,20 @@ export default function Sidebar({ mapRef, layer }) {
   }
 
   return (
-    <div className="w-[220px] flex-shrink-0 bg-panel border-r border-border flex flex-col overflow-y-auto">
+    <div className="w-[220px] flex-shrink-0 bg-panel border-r border-border flex flex-col overflow-y-auto h-full">
 
       {/* Date range */}
       <div className="p-2.5 border-b border-border flex-shrink-0">
         <div className="text-[10px] tracking-[2.5px] text-muted mb-2">DATE RANGE</div>
         <div className="flex flex-col gap-1.5">
-          <input type="date" value={dateFrom || '2025-01-01'}
-            onChange={e => setDateRange(e.target.value, dateTo || '2025-11-30')}
+          <input type="date" value={dateFrom || ''}
+            onChange={e => setDateRange(e.target.value || null, dateTo)}
+            placeholder="From date"
             className="bg-panel2 border border-border2 text-[#c9d1d9] font-mono text-[10px] px-2 py-1 rounded focus:outline-none focus:border-blue-400"
           />
-          <input type="date" value={dateTo || '2025-11-30'}
-            onChange={e => setDateRange(dateFrom || '2025-01-01', e.target.value)}
+          <input type="date" value={dateTo || ''}
+            onChange={e => setDateRange(dateFrom, e.target.value || null)}
+            placeholder="To date"
             className="bg-panel2 border border-border2 text-[#c9d1d9] font-mono text-[10px] px-2 py-1 rounded focus:outline-none focus:border-blue-400"
           />
         </div>
@@ -132,9 +139,24 @@ export default function Sidebar({ mapRef, layer }) {
       </div>
 
       {/* Event breakdown */}
-      <div className="p-2.5 flex-shrink-0">
+      <div className="p-2.5 border-b border-border flex-shrink-0">
         <div className="text-[10px] tracking-[2.5px] text-muted mb-2">EVENT BREAKDOWN</div>
         <EventBreakdown events={filteredEvents} />
+      </div>
+
+      {/* Threat level */}
+      <div className="p-2.5 border-b border-border flex-shrink-0">
+        <ThreatLevelPanel />
+      </div>
+
+      {/* Satellite fires */}
+      <div className="p-2.5 border-b border-border flex-shrink-0">
+        <SatelliteFiresPanel />
+      </div>
+
+      {/* Early warning */}
+      <div className="p-2.5 flex-shrink-0">
+        <EarlyWarningPanel />
       </div>
 
     </div>
@@ -245,8 +267,8 @@ function StrikesPanel() {
   const [minFatalStr,     setMinFatalStr]     = useState(0)
   const [strikeType,      setStrikeType]      = useState('all')
   const [strikeTypeOpen,  setStrikeTypeOpen]  = useState(false)
-  const [localDateFrom,   setLocalDateFrom]   = useState('2025-01-01')
-  const [localDateTo,     setLocalDateTo]     = useState('2025-11-30')
+  const [localDateFrom,   setLocalDateFrom]   = useState(daysAgo(90))
+  const [localDateTo,     setLocalDateTo]     = useState(today())
 
   const strikeTypeRef = useRef(null)
   const countryRef    = useRef(null)
@@ -278,14 +300,14 @@ function StrikesPanel() {
   ]
 
   const allStrikes = allEvents.filter(ev => {
-    if (ev.type !== 'Explosions/Remote violence') return false
+    if (ev.type !== 'explosion' && ev.type !== 'battle') return false
     const sub = (ev.subtype || '').toLowerCase()
     return STRIKE_SUBTYPES.some(s => sub.includes(s.split('/')[0]))
   })
 
   function matchesCountry(ev, country) {
     if (country === 'all') return true
-    const actorMatch   = (ev.actor   || '').toLowerCase().includes(country.toLowerCase())
+    const actorMatch   = (ev.actor1  || '').toLowerCase().includes(country.toLowerCase())
     const countryMatch = (ev.country || '').toLowerCase() === country.toLowerCase()
     return actorMatch || countryMatch
   }
@@ -293,8 +315,8 @@ function StrikesPanel() {
   const previewStrikes = allStrikes.filter(ev => {
     if (new Date(ev.date) < new Date(localDateFrom)) return false
     if (new Date(ev.date) > new Date(localDateTo))   return false
-    if (!matchesCountry(ev, selectedCountry))        return false
-    if ((parseInt(ev.fatal) || 0) < minFatalStr)     return false
+    if (!matchesCountry(ev, selectedCountry))              return false
+    if ((parseInt(ev.fatalities) || 0) < minFatalStr)     return false
     if (strikeType !== 'all') {
       const sub = (ev.subtype || '').toLowerCase()
       if (!sub.includes(strikeType)) return false
@@ -303,7 +325,7 @@ function StrikesPanel() {
   })
 
   const totalStrikes = previewStrikes.length
-  const totalFatal   = previewStrikes.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
+  const totalFatal   = previewStrikes.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0)
 
   const countryCounts = previewStrikes.reduce((acc, e) => {
     acc[e.country] = (acc[e.country] || 0) + 1
@@ -351,8 +373,8 @@ function StrikesPanel() {
     const filtered = allStrikes.filter(ev => {
       if (new Date(ev.date) < new Date(localDateFrom)) return false
       if (new Date(ev.date) > new Date(localDateTo))   return false
-      if (!matchesCountry(ev, selectedCountry))        return false
-      if ((parseInt(ev.fatal) || 0) < minFatalStr)     return false
+      if (!matchesCountry(ev, selectedCountry))              return false
+      if ((parseInt(ev.fatalities) || 0) < minFatalStr)     return false
       if (strikeType !== 'all') {
         const sub = (ev.subtype || '').toLowerCase()
         if (!sub.includes(strikeType)) return false
@@ -367,8 +389,8 @@ function StrikesPanel() {
     setCountryInput('')
     setMinFatalStr(0)
     setStrikeType('all')
-    setLocalDateFrom('2025-01-01')
-    setLocalDateTo('2025-11-30')
+    setLocalDateFrom(daysAgo(90))
+    setLocalDateTo(today())
     useStore.getState().applyFilters()
   }
 
@@ -513,6 +535,152 @@ function StrikesPanel() {
       </div>
 
     </div>
+  )
+}
+
+// ── THREAT LEVEL PANEL ────────────────────────────────────────
+function ThreatLevelPanel() {
+  const [summary, setSummary] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/alerts`)
+      .then(r => r.json())
+      .then(d => setSummary(d.summary))
+      .catch(() => {})
+  }, [])
+
+  const levels = [
+    { key: 'critical', label: 'CRITICAL', color: '#ff2a2a', dot: '🔴' },
+    { key: 'elevated', label: 'ELEVATED', color: '#f97316', dot: '🟠' },
+    { key: 'watch',    label: 'WATCH',    color: '#fbbf24', dot: '🟡' },
+  ]
+
+  return (
+    <>
+      <div className="text-[10px] tracking-[2.5px] text-muted mb-2">THREAT LEVEL</div>
+      {summary ? (
+        <div className="flex flex-col gap-1">
+          {levels.map(({ key, label, color, dot }) => (
+            <div key={key} className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px]">{dot}</span>
+                <span className="text-[9px] font-mono" style={{ color }}>{label}</span>
+              </div>
+              <span className="text-[10px] font-bold font-mono" style={{ color }}>
+                {summary[key] || 0}
+              </span>
+            </div>
+          ))}
+          {!summary.critical && !summary.elevated && !summary.watch && (
+            <div className="text-[9px] text-muted">No active alerts</div>
+          )}
+        </div>
+      ) : (
+        <div className="text-[9px] text-muted">Loading...</div>
+      )}
+    </>
+  )
+}
+
+// ── SATELLITE FIRES PANEL ─────────────────────────────────────
+function SatelliteFiresPanel() {
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/fires/stats?timeframe=7d`)
+      .then(r => r.json())
+      .then(d => setStats(d))
+      .catch(() => {})
+  }, [])
+
+  return (
+    <>
+      <div className="text-[10px] tracking-[2.5px] text-muted mb-2">SATELLITE FIRES (7d)</div>
+      {stats ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] text-muted">In conflict zones</span>
+            <span className="text-[10px] font-bold text-orange-400">{stats.conflict_zone ?? 0}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] text-muted">Total anomalies</span>
+            <span className="text-[10px] font-mono text-[#c9d1d9]">{stats.total ?? 0}</span>
+          </div>
+          {stats.max_frp && (
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] text-muted">Max FRP</span>
+              <span className="text-[10px] font-mono text-orange-300">{parseFloat(stats.max_frp).toFixed(0)} MW</span>
+            </div>
+          )}
+          {stats.by_country && stats.by_country.length > 0 && (
+            <div className="mt-1 pt-1 border-t border-border2">
+              <div className="text-[8px] text-muted mb-1">TOP ZONES</div>
+              {stats.by_country.slice(0, 3).map(r => (
+                <div key={r.country} className="flex justify-between text-[9px] mb-0.5">
+                  <span className="text-muted truncate max-w-[110px]">{r.country}</span>
+                  <span className="text-orange-400 font-mono">{r.fire_count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {stats.total === 0 && (
+            <div className="text-[9px] text-muted">
+              Set FIRMS_API_KEY to enable
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-[9px] text-muted">Loading...</div>
+      )}
+    </>
+  )
+}
+
+// ── EARLY WARNING PANEL ───────────────────────────────────────
+function EarlyWarningPanel() {
+  const [alerts, setAlerts] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/alerts?resolved=false&limit=5`)
+      .then(r => r.json())
+      .then(d => setAlerts(d.alerts || []))
+      .catch(() => setAlerts([]))
+  }, [])
+
+  if (!alerts) return (
+    <>
+      <div className="text-[10px] tracking-[2.5px] text-muted mb-2">EARLY WARNING</div>
+      <div className="text-[9px] text-muted">Loading...</div>
+    </>
+  )
+
+  const SEVERITY_ICON = { critical: '🔴', elevated: '🟠', watch: '⚠️' }
+  const SEVERITY_COLOR = { critical: '#ff2a2a', elevated: '#f97316', watch: '#fbbf24' }
+
+  return (
+    <>
+      <div className="text-[10px] tracking-[2.5px] text-muted mb-2">EARLY WARNING</div>
+      {alerts.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {alerts.map(a => (
+            <div key={a.id} className="flex items-start gap-1.5">
+              <span className="text-[10px] mt-px">{SEVERITY_ICON[a.severity] || '⚠️'}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[9px] font-mono truncate"
+                  style={{ color: SEVERITY_COLOR[a.severity] || '#fbbf24' }}>
+                  {a.country || 'Global'}
+                </div>
+                <div className="text-[8px] text-muted leading-tight line-clamp-2">
+                  {a.title || a.description || a.alert_type}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[9px] text-muted">No active alerts</div>
+      )}
+    </>
   )
 }
 

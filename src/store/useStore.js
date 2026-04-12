@@ -11,8 +11,9 @@ function daysAgo(n) {
 }
 
 // ── Sources registry ─────────────────────────────────────────────────────────
+// UCDP is the ONLY source for map events. GDELT is intelligence-layer only.
 export const SOURCES = {
-  gdelt: 'gdelt',
+  ucdp: 'ucdp',
 }
 
 const useStore = create((set, get) => ({
@@ -23,33 +24,53 @@ const useStore = create((set, get) => ({
   error:          null,
 
   activeType:  'all',
-  dateFrom:    daysAgo(7),
-  dateTo:      today(),
+  dateFrom:    null,
+  dateTo:      null,
   minFatal:    0,
   search:      '',
-  dataSource:  'gdelt',
+  dataSource:  'ucdp',
+
+  // Layer visibility toggles
+  layers: {
+    events:  true,
+    fires:   false,
+    arcs:    true,
+  },
+  toggleLayer: (name) => set(s => ({
+    layers: { ...s.layers, [name]: !s.layers[name] }
+  })),
+
+  // Intelligence data (fetched separately from events)
+  breakingNews:       [],
+  conflicts:          [],
+  humanitarianStats:  null,
+  escalationLevels:   { critical: 0, elevated: 0, watch: 0 },
+  alerts:             [],
 
   // ── Load events from Postgres ─────────────────────────────────────────────
-  loadLiveEvents: async (source = 'gdelt') => {
+  loadLiveEvents: async (source = 'ucdp') => {
     set({ loading: true, error: null, dataSource: source })
     try {
-      const params = new URLSearchParams({ from: daysAgo(7), to: today() })
+      // No date range passed — server returns ORDER BY date DESC LIMIT 500
+      // Supports historical UCDP data (1989-2018) without filtering it out
+      const params = new URLSearchParams({ source, limit: 500 })
       const res    = await fetch(`${API}?${params}`)
       const data   = await res.json()
-      if (data.status === 200) {
+      if (data.status !== undefined || data.events) {
+        const events = data.events || []
         set({
-          events:     data.events,
+          events:     events,
           loading:    false,
           activeType: 'all',
-          dateFrom:   daysAgo(7),
-          dateTo:     today(),
+          dateFrom:   null,
+          dateTo:     null,
           minFatal:   0,
           search:     '',
         })
         get().applyFilters()
-        console.log(`[store] loaded ${data.events.length} events`)
+        console.log(`[store] loaded ${events.length} events`)
       } else {
-        throw new Error(data.error)
+        throw new Error(data.error || 'API error')
       }
     } catch (err) {
       console.error('[store] load failed:', err.message)
@@ -69,10 +90,10 @@ const useStore = create((set, get) => ({
 
       const res  = await fetch(`${API}?${params}`)
       const data = await res.json()
-      if (data.status === 200) {
+      if (data.events) {
         set({ events: data.events, filteredEvents: data.events, loading: false })
       } else {
-        throw new Error(data.error)
+        throw new Error(data.error || 'API error')
       }
     } catch (err) {
       console.error('[store] filtered load failed:', err.message)
@@ -97,10 +118,12 @@ const useStore = create((set, get) => ({
     const filtered = events.filter(ev => {
       if (type !== 'all' && ev.type !== type)   return false
 
-      const evDate = ev.date.substring(0, 10)
-      if (dateFrom && evDate < dateFrom)         return false
-      if (dateTo   && evDate > dateTo)           return false
-      if ((parseInt(ev.fatal) || 0) < fatal)     return false
+      if (dateFrom || dateTo) {
+        const evDate = ev.date.substring(0, 10)
+        if (dateFrom && evDate < dateFrom)       return false
+        if (dateTo   && evDate > dateTo)         return false
+      }
+      if ((parseInt(ev.fatalities) || 0) < fatal) return false
 
       if (q) {
         const countryMatch  = (ev.country  || '').toLowerCase().startsWith(q)
@@ -117,8 +140,8 @@ const useStore = create((set, get) => ({
   resetFilters: () => {
     set({
       activeType: 'all',
-      dateFrom:   daysAgo(7),
-      dateTo:     today(),
+      dateFrom:   null,
+      dateTo:     null,
       minFatal:   0,
       search:     '',
     })
@@ -129,13 +152,13 @@ const useStore = create((set, get) => ({
     const { filteredEvents } = get()
     return {
       total:      filteredEvents.length,
-      fatalities: filteredEvents.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0),
+      fatalities: filteredEvents.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0),
       countries:  new Set(filteredEvents.map(e => e.country)).size,
     }
   },
 }))
 
-// Auto-load on app start
-useStore.getState().loadLiveEvents('gdelt')
+// Auto-load on app start — UCDP events only
+useStore.getState().loadLiveEvents('ucdp')
 
 export default useStore

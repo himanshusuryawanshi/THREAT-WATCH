@@ -1,10 +1,16 @@
-import express        from 'express'
-import cors           from 'cors'
-import dotenv         from 'dotenv'
-import eventsRouter   from './routes/events.js'
-// import conflictsRouter from './routes/conflicts.js'
-// import adminRouter    from './routes/admin.js'
-import { startScheduler } from './ingestion/scheduler.js'
+import express         from 'express'
+import cors            from 'cors'
+import dotenv          from 'dotenv'
+import eventsRouter    from './routes/events.js'
+import contextRouter   from './routes/context.js'
+import firesRouter     from './routes/fires.js'
+import conflictsRouter from './routes/conflicts.js'
+import geoRouter       from './routes/geo.js'
+import alertsRouter    from './routes/alerts.js'
+import { startGdeltPoller  } from './cron/gdeltPoller.js'
+import { startUcdpPoller   } from './cron/ucdpPoller.js'
+import { startFirmsPoller  } from './cron/firmsPoller.js'
+import { startAlertsPoller } from './cron/alertsPoller.js'
 
 dotenv.config({ path: '../.env' })
 
@@ -17,27 +23,45 @@ app.use(cors({
 }))
 app.use(express.json())
 
-// ── Routes ─────────────────────────────────────────────────────
+// ── Tier 1 — UCDP event data (map dots, strike arcs) ──────────────────────────
 app.use('/api/events',    eventsRouter)
-// app.use('/api/conflicts', conflictsRouter)
-// app.use('/api/admin',     adminRouter)
 
-// ── Health ─────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
+// ── Tier 2 — GDELT intelligence (breaking news, sentiment) ────────────────────
+app.use('/api/context',   contextRouter)
+
+// ── Phase 1 — NASA FIRMS thermal anomalies ─────────────────────────────────────
+app.use('/api/fires',     firesRouter)
+
+// ── Phase 1 — Conflict records ─────────────────────────────────────────────────
+app.use('/api/conflicts', conflictsRouter)
+
+// ── Phase 1 — Geospatial (choropleth + boundaries) ────────────────────────────
+app.use('/api/geo',       geoRouter)
+
+// ── Phase 1 — Early warning alerts ────────────────────────────────────────────
+app.use('/api/alerts',    alertsRouter)
+
+// ── Phase 2 additions ─────────────────────────────────────────────────────────
+// TODO: app.use('/api/displacement', displacementRouter)  — UNHCR refugee flows
+// TODO: app.use('/api/tone',         toneRouter)          — GDELT tone analytics
+
+// ── Phase 3 additions ─────────────────────────────────────────────────────────
+// TODO: app.use('/api/risk',     riskRouter)          — ThreatWatch risk scores
+// TODO: app.use('/api/briefing', briefingRouter)      — Claude AI daily briefings
+
+// ── Phase 4 additions ─────────────────────────────────────────────────────────
+// TODO: app.use('/api/sanctions', sanctionsRouter)    — OpenSanctions data
+
+// ── Health ─────────────────────────────────────────────────────────────────────
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })
 })
 
-// ── Start ──────────────────────────────────────────────────────
+// ── Start ───────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`ThreatWatch API running on http://localhost:${PORT}`)
-  // Start ingestion pipeline — runs immediately then every 6h
-//   startScheduler()
+  startUcdpPoller()    // boot: bulk-load GED if empty, then daily at 02:00
+  startGdeltPoller()   // every 15 min — articles + tone (no map events)
+  startFirmsPoller()   // every 3 hours — thermal anomalies
+  startAlertsPoller()  // boot + every 6 hours — derive alerts from UCDP + FIRMS
 })
-
-// Temporary test — remove after confirming
-// import pool from './db/pool.js'
-// pool.query('SELECT COUNT(*) FROM events').then(r => {
-//   console.log('[db test] events count:', r.rows[0].count)
-// }).catch(err => {
-//   console.error('[db test] failed:', err.message)
-// })

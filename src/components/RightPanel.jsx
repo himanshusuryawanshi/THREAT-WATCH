@@ -15,12 +15,12 @@ export default function RightPanel() {
   // Risk ranking
   const scores = {}
   filteredEvents.forEach(e => {
-    if (!scores[e.country]) scores[e.country] = { events: 0, fatal: 0 }
+    if (!scores[e.country]) scores[e.country] = { events: 0, fatalities: 0 }
     scores[e.country].events++
-    scores[e.country].fatal += (parseInt(e.fatal) || 0)
+    scores[e.country].fatalities += (parseInt(e.fatalities) || 0)
   })
   const ranked = Object.entries(scores)
-    .map(([c, s]) => ({ country: c, score: Math.min(99, Math.round(s.events * 0.4 + s.fatal * 0.3)) }))
+    .map(([c, s]) => ({ country: c, score: Math.min(99, Math.round(s.events * 0.4 + s.fatalities * 0.3)) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
 
@@ -98,12 +98,12 @@ export default function RightPanel() {
                 <div className="flex justify-between text-[9px] text-muted">
                 <span
                     className="hover:text-blue-400 transition-colors cursor-pointer truncate max-w-[120px]"
-                    onClick={e => { e.stopPropagation(); window.location.href = `/actor/${encodeURIComponent(ev.actor)}` }}
+                    onClick={e => { e.stopPropagation(); window.location.href = `/actor/${encodeURIComponent(ev.actor1)}` }}
                 >
-                    {(ev.actor || '').substring(0, 20)}
+                    {(ev.actor1 || '').substring(0, 20)}
                 </span>
-                {ev.fatal > 0
-                    ? <span className="text-threat flex-shrink-0">💀 {ev.fatal}</span>
+                {ev.fatalities > 0
+                    ? <span className="text-threat flex-shrink-0">💀 {ev.fatalities}</span>
                     : <span className="flex-shrink-0">0 fatal</span>
                 }
                 </div>
@@ -117,8 +117,8 @@ export default function RightPanel() {
 
 function DetailPanel({ event, onClose }) {
   const color     = getEventColor(event.type)
-  const intensity = Math.min(100, (event.fatal / 35) * 100)
-  const intColor  = event.fatal > 20 ? '#ff2a2a' : event.fatal > 5 ? '#f97316' : '#fbbf24'
+  const intensity = Math.min(100, ((event.fatalities || 0) / 35) * 100)
+  const intColor  = (event.fatalities || 0) > 20 ? '#ff2a2a' : (event.fatalities || 0) > 5 ? '#f97316' : '#fbbf24'
 
   return (
     <div className="flex flex-col gap-3 p-3 h-full">
@@ -150,9 +150,9 @@ function DetailPanel({ event, onClose }) {
           <span className="text-muted tracking-widest">ACTOR</span>
           <span
             className="text-blue-400 cursor-pointer hover:text-white transition-colors text-right max-w-[130px]"
-            onClick={() => window.location.href = `/actor/${encodeURIComponent(event.actor)}`}
+            onClick={() => window.location.href = `/actor/${encodeURIComponent(event.actor1)}`}
           >
-            {event.actor}
+            {event.actor1}
           </span>
         </div>
         <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
@@ -166,8 +166,8 @@ function DetailPanel({ event, onClose }) {
         </div>
         <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">
           <span className="text-muted tracking-widest">FATALITIES</span>
-          <span style={{ color: event.fatal > 0 ? '#ff2a2a' : '#c9d1d9' }}>
-            {event.fatal > 0 ? `${event.fatal} confirmed` : '0 (non-lethal)'}
+          <span style={{ color: (event.fatalities || 0) > 0 ? '#ff2a2a' : '#c9d1d9' }}>
+            {(event.fatalities || 0) > 0 ? `${event.fatalities} confirmed` : '0 (non-lethal)'}
           </span>
         </div>
         <div className="flex justify-between py-1.5 border-b border-border/40 text-[10px]">

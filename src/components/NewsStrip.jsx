@@ -1,9 +1,45 @@
-import { useState } from 'react'
-import { NEWS_HEADLINES } from '../utils/constants'
+import { useState, useEffect } from 'react'
+
+const API     = 'http://localhost:3001/api'
+const REFRESH = 15 * 60 * 1000   // 15 min — matches GDELT poll interval
+
+// Fallback shown while articles load or if API is down
+const FALLBACK = [
+  'ThreatWatch — global conflict intelligence platform · UCDP verified events · NASA FIRMS satellite data',
+  'Loading latest conflict intelligence from GDELT · UCDP · NASA FIRMS...',
+]
 
 export default function NewsStrip() {
-  const [paused, setPaused] = useState(false)
-  const text = NEWS_HEADLINES.join('   ·   ')
+  const [headlines, setHeadlines] = useState(FALLBACK)
+  const [paused,    setPaused]    = useState(false)
+
+  useEffect(() => {
+    async function fetchHeadlines() {
+      try {
+        const res  = await fetch(`${API}/context/breaking?limit=20`)
+        const data = await res.json()
+        const articles = data.articles || []
+        if (articles.length > 0) {
+          // Format: "SOURCE: Title" — truncated to keep strip readable
+          setHeadlines(articles.map(a => {
+            const src  = a.source_name ? `${a.source_name.toUpperCase()}: ` : ''
+            const tone = a.tone != null
+              ? (a.tone < -3 ? ' ⚠' : a.tone > 3 ? ' ↑' : '')
+              : ''
+            return `${src}${a.title}${tone}`
+          }))
+        }
+      } catch {
+        // Keep fallback on network error
+      }
+    }
+
+    fetchHeadlines()
+    const timer = setInterval(fetchHeadlines, REFRESH)
+    return () => clearInterval(timer)
+  }, [])
+
+  const text = headlines.join('   ·   ')
 
   return (
     <div
@@ -19,7 +55,7 @@ export default function NewsStrip() {
         <div
           className="whitespace-nowrap text-[12px] text-muted inline-block"
           style={{
-            animation: 'scroll-news 60s linear infinite',
+            animation:          'scroll-news 120s linear infinite',
             animationPlayState: paused ? 'paused' : 'running',
           }}
         >

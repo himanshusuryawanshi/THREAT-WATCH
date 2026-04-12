@@ -14,8 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./db/001_events.sql:/docker-entrypoint-initdb.d/001_events.sql
       - ./db/002_conflicts.sql:/docker-entrypoint-initdb.d/002_conflicts.sql
-      - ./db/003_statements.sql:/docker-entrypoint-initdb.d/003_statements.sql
-      - ./db/004_indexes.sql:/docker-entrypoint-initdb.d/004_indexes.sql
+      - ./db/003_articles.sql:/docker-entrypoint-initdb.d/003_articles.sql
+      - ./db/004_humanitarian.sql:/docker-entrypoint-initdb.d/004_humanitarian.sql
+      - ./db/005_actors.sql:/docker-entrypoint-initdb.d/005_actors.sql
+      - ./db/006_actor_relationships.sql:/docker-entrypoint-initdb.d/006_actor_relationships.sql
+      - ./db/007_geo_boundaries.sql:/docker-entrypoint-initdb.d/007_geo_boundaries.sql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U threatwatch']
       interval: 10s

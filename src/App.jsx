@@ -2,10 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header      from './components/Header'
 import NewsStrip   from './components/NewsStrip'
-import Sidebar     from './components/SideBar'
+import Sidebar     from './components/Sidebar'
 import MapView     from './components/MapView'
 import RightPanel  from './components/RightPanel'
-import Timeline    from './components/Timeline'
 import StatusBar   from './components/StatusBar'
 import CountryPage from './pages/CountryPage'
 import ComparePage from './pages/ComparePage'
@@ -17,6 +16,8 @@ const SIDEBAR_W = 220  // must match Sidebar width
 function Dashboard({ mapRef, setMapRef }) {
   const [layer,       setLayer]       = useState('markers')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const loading = useStore(s => s.loading)
+  const events  = useStore(s => s.events)
 
   // Sync CSS variable with initial state
   useEffect(() => {
@@ -99,6 +100,27 @@ function Dashboard({ mapRef, setMapRef }) {
             setLayer={setLayer}
             sidebarOpen={sidebarOpen}
           />
+
+          {/* Loading overlay — shown only on initial fetch */}
+          {loading && events.length === 0 && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 800,
+              background: 'rgba(4,6,10,0.85)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 16,
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%',
+                border: '2px solid #1e2d3d',
+                borderTop: '2px solid #ff2a2a',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <div style={{ fontFamily: 'Share Tech Mono, monospace', color: '#6b7280', fontSize: 11, letterSpacing: 3 }}>
+                LOADING CONFLICT DATA...
+              </div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+            </div>
+          )}
         </div>
 
         {/* ── RIGHT PANEL ──────────────────────────────────────── 
@@ -106,7 +128,6 @@ function Dashboard({ mapRef, setMapRef }) {
         <RightPanel />
 
       </div>
-      <Timeline />
       <StatusBar />
     </div>
   )
@@ -118,9 +139,9 @@ export default function App() {
 
   useEffect(() => {
     if (location.pathname === '/') {
-      const { dataSource, events, loadLiveEvents } = useStore.getState()
-      if (dataSource !== 'demo' && events.length <= 35) {
-        loadLiveEvents(dataSource)
+      const { events, loading, loadLiveEvents } = useStore.getState()
+      if (events.length === 0 && !loading) {
+        loadLiveEvents('ucdp')
       }
     }
   }, [location.pathname])

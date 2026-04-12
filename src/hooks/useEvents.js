@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 const API_URL = 'http://localhost:3001/api/events'
 
 export default function useEvents({
-  source   = 'acled',
+  source   = 'ucdp',
   limit    = 5000,
   country  = null,
   type     = null,

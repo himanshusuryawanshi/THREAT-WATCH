@@ -1,33 +1,48 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Chart from 'chart.js/auto'
-import useStore from '../store/useStore'
 import { getEventColor } from '../utils/constants'
 
-function CountryStats({ country }) {
+const API = 'http://localhost:3001/api'
+
+// ── Per-country stats panel — fetches its own data ────────────────────────────
+function CountryStats({ country, accentColor }) {
   const chartRef  = useRef(null)
   const chartInst = useRef(null)
-  const allEvents = useStore(s => s.events)
-  const events    = allEvents.filter(e => e.country === country)
-  const fatal     = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
 
-  const actors = {}
-  events.forEach(e => { actors[e.actor] = (actors[e.actor] || 0) + 1 })
-  const topActor  = Object.entries(actors).sort((a, b) => b[1] - a[1])[0]
+  const [events,  setEvents]  = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!country) return
+    setLoading(true)
+    const params = new URLSearchParams({ country, source: 'ucdp', limit: 5000 })
+    fetch(`${API}/events?${params}`)
+      .then(r => r.json())
+      .then(data => { if (data.events) setEvents(data.events) })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [country])
+
+  const fatal     = events.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0)
   const riskScore = Math.min(99, Math.round(events.length * 0.4 + fatal * 0.3))
   const riskColor = riskScore > 70 ? '#ff2a2a' : riskScore > 50 ? '#f97316' : '#fbbf24'
+
+  const actors = {}
+  events.forEach(e => { actors[e.actor1] = (actors[e.actor1] || 0) + 1 })
+  const topActor = Object.entries(actors).sort((a, b) => b[1] - a[1])[0]
 
   const typeCounts = {}
   events.forEach(e => { typeCounts[e.type] = (typeCounts[e.type] || 0) + 1 })
 
   useEffect(() => {
-    if (!chartRef.current) return
+    if (!chartRef.current || events.length === 0) return
     if (chartInst.current) chartInst.current.destroy()
 
     const monthly = {}
     events.forEach(e => {
-      const month = e.date.substring(0, 7)
-      monthly[month] = (monthly[month] || 0) + (parseInt(e.fatal) || 0)
+      const month = e.date?.substring(0, 7)
+      if (month) monthly[month] = (monthly[month] || 0) + (parseInt(e.fatalities) || 0)
     })
     const labels = Object.keys(monthly).sort()
     const data   = labels.map(l => monthly[l])
@@ -38,12 +53,12 @@ function CountryStats({ country }) {
         labels,
         datasets: [{
           data,
-          borderColor:     riskColor,
-          backgroundColor: riskColor + '22',
-          fill:            true,
-          tension:         0.4,
-          pointRadius:     3,
-          pointBackgroundColor: riskColor,
+          borderColor:          accentColor,
+          backgroundColor:      accentColor + '22',
+          fill:                 true,
+          tension:              0.4,
+          pointRadius:          2,
+          pointBackgroundColor: accentColor,
         }],
       },
       options: {
@@ -56,11 +71,17 @@ function CountryStats({ country }) {
       },
     })
     return () => chartInst.current?.destroy()
-  }, [country, allEvents])
+  }, [events, accentColor])
 
   if (!country) return (
     <div className="flex-1 flex items-center justify-center text-muted text-sm">
       Select a country
+    </div>
+  )
+
+  if (loading) return (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-muted font-mono text-sm animate-pulse">LOADING {country.toUpperCase()}...</div>
     </div>
   )
 
@@ -70,11 +91,11 @@ function CountryStats({ country }) {
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-panel2 rounded p-3 text-center border border-border">
-          <div className="text-xl font-bold text-threat">{events.length}</div>
+          <div className="text-xl font-bold text-threat">{events.length.toLocaleString()}</div>
           <div className="text-[8px] text-muted tracking-widest">EVENTS</div>
         </div>
         <div className="bg-panel2 rounded p-3 text-center border border-border">
-          <div className="text-xl font-bold text-orange-400">{fatal}</div>
+          <div className="text-xl font-bold text-orange-400">{fatal.toLocaleString()}</div>
           <div className="text-[8px] text-muted tracking-widest">FATALITIES</div>
         </div>
         <div className="bg-panel2 rounded p-3 text-center border border-border">
@@ -124,12 +145,36 @@ function CountryStats({ country }) {
   )
 }
 
+// ── Main compare page ─────────────────────────────────────────────────────────
 export default function ComparePage() {
-  const navigate  = useNavigate()
-  const allEvents = useStore(s => s.events)
-  const COUNTRIES = [...new Set(allEvents.map(e => e.country))].sort()
-  const [countryA, setCountryA] = useState(COUNTRIES[0] || 'Ukraine')
-  const [countryB, setCountryB] = useState(COUNTRIES[1] || 'Sudan')
+  const navigate = useNavigate()
+
+  const [countries, setCountries] = useState([])
+  const [countryA,  setCountryA]  = useState('Ukraine')
+  const [countryB,  setCountryB]  = useState('Sudan')
+
+  // Fetch country list from stats API (top 20 countries by event count)
+  useEffect(() => {
+    fetch(`${API}/events/stats?timeframe=1y`)
+      .then(r => r.json())
+      .then(data => {
+        const list = (data.by_country || []).map(r => r.country).filter(Boolean).sort()
+        if (list.length > 0) {
+          setCountries(list)
+          setCountryA(list[0])
+          setCountryB(list[1] || list[0])
+        }
+      })
+      .catch(() => {
+        // Fallback to known conflict countries
+        const fallback = [
+          'Afghanistan','DR Congo (Zaire)','Ethiopia','India','Iraq',
+          'Mali','Myanmar','Nigeria','Pakistan','Somalia',
+          'Sudan','Syria','Ukraine','Yemen',
+        ]
+        setCountries(fallback)
+      })
+  }, [])
 
   return (
     <div className="h-screen bg-dark flex flex-col overflow-hidden">
@@ -143,8 +188,8 @@ export default function ComparePage() {
         <div className="font-oswald text-xl font-semibold tracking-widest text-white">
           COUNTRY COMPARE
         </div>
-        <div className="text-[10px] text-muted ml-auto">
-          Select two countries to compare conflict data
+        <div className="text-[10px] text-muted ml-auto font-mono">
+          ALL TIME DATA · UCDP
         </div>
       </div>
 
@@ -159,11 +204,11 @@ export default function ComparePage() {
               onChange={e => setCountryA(e.target.value)}
               className="flex-1 bg-panel2 border border-border2 text-white font-mono text-[11px] px-3 py-1.5 rounded focus:outline-none focus:border-blue-400"
             >
-              {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {countries.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <div className="text-[10px] text-blue-400 font-bold tracking-widest">COUNTRY A</div>
           </div>
-          <CountryStats country={countryA} />
+          <CountryStats country={countryA} accentColor="#38bdf8" />
         </div>
 
         {/* VS divider */}
@@ -182,10 +227,10 @@ export default function ComparePage() {
               onChange={e => setCountryB(e.target.value)}
               className="flex-1 bg-panel2 border border-border2 text-white font-mono text-[11px] px-3 py-1.5 rounded focus:outline-none focus:border-orange-400"
             >
-              {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {countries.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <CountryStats country={countryB} />
+          <CountryStats country={countryB} accentColor="#f97316" />
         </div>
 
       </div>

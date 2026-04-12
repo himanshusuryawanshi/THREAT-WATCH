@@ -22,13 +22,14 @@ export default function CountryPage() {
   const [events,  setEvents]  = useState([])
   const [loading, setLoading] = useState(true)
 
-  // ── Fetch all-time data for this country from Postgres ───────────────────
+  // ── Fetch all-time UCDP data for this country from Postgres ─────────────
   useEffect(() => {
     setLoading(true)
-    fetch(`${API}?country=${encodeURIComponent(country)}`)
+    const params = new URLSearchParams({ country, source: 'ucdp', limit: 5000 })
+    fetch(`${API}?${params}`)
       .then(r => r.json())
       .then(data => {
-        if (data.status === 200) setEvents(data.events)
+        if (data.events) setEvents(data.events)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -36,14 +37,14 @@ export default function CountryPage() {
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const total      = events.length
-  const fatal      = events.reduce((s, e) => s + (parseInt(e.fatal) || 0), 0)
+  const fatal      = events.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0)
   const riskScore  = Math.min(99, Math.round(total * 0.4 + fatal * 0.3))
   const riskColor  = riskScore > 70 ? '#ff2a2a' : riskScore > 50 ? '#f97316' : '#fbbf24'
   const typeCounts = {}
   const actorCounts = {}
   events.forEach(e => {
-    typeCounts[e.type]   = (typeCounts[e.type]   || 0) + 1
-    actorCounts[e.actor] = (actorCounts[e.actor] || 0) + 1
+    typeCounts[e.type]    = (typeCounts[e.type]    || 0) + 1
+    actorCounts[e.actor1] = (actorCounts[e.actor1] || 0) + 1
   })
   const topActors = Object.entries(actorCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
@@ -99,12 +100,12 @@ export default function CountryPage() {
           geometry: { type: 'Point', coordinates: [e.lng, e.lat] },
           properties: {
             color:  getEventColor(e.type),
-            radius: Math.max(4, Math.min(18, 4 + (e.fatal || 0) * 0.3)),
-            type:   e.type,
-            location: e.location,
-            actor:  e.actor || '',
-            date:   e.date,
-            fatal:  e.fatal || 0,
+            radius:     Math.max(4, Math.min(18, 4 + (e.fatalities || 0) * 0.3)),
+            type:       e.type,
+            location:   e.location,
+            actor1:     e.actor1 || '',
+            date:       e.date,
+            fatalities: e.fatalities || 0,
             notes:  e.notes || '',
           },
         })),
@@ -146,8 +147,8 @@ export default function CountryPage() {
               <div style="color:${p.color};font-size:9px;letter-spacing:2px;margin-bottom:4px">${p.type.toUpperCase()}</div>
               <div style="color:#fff;font-size:13px;font-family:'Oswald',sans-serif;margin-bottom:6px">${p.location}</div>
               <div style="color:#6b7280;font-size:10px;margin-bottom:2px">📅 ${p.date?.substring(0,10)}</div>
-              <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(p.actor||'').substring(0,30)}</div>
-              <div style="color:#ff2a2a;font-size:10px">💀 ${p.fatal} fatalities</div>
+              <div style="color:#6b7280;font-size:10px;margin-bottom:2px">👥 ${(p.actor1||'').substring(0,30)}</div>
+              <div style="color:#ff2a2a;font-size:10px">💀 ${p.fatalities} fatalities</div>
               ${p.notes ? `<div style="color:#6b7280;font-size:9px;margin-top:4px;max-width:200px">${p.notes.substring(0,80)}...</div>` : ''}
             </div>
           `)
@@ -180,7 +181,7 @@ export default function CountryPage() {
     const monthly = {}
     events.forEach(e => {
       const month = e.date?.substring(0, 7)
-      if (month) monthly[month] = (monthly[month] || 0) + (parseInt(e.fatal) || 0)
+      if (month) monthly[month] = (monthly[month] || 0) + (parseInt(e.fatalities) || 0)
     })
     const labels = Object.keys(monthly).sort()
     const data   = labels.map(l => monthly[l])
@@ -311,12 +312,12 @@ export default function CountryPage() {
                     <div className="text-[11px] text-white mb-1">{ev.location}</div>
                     <div className="flex justify-between text-[9px] mb-1">
                       <span className="text-muted">{ev.date?.substring(0, 10)}</span>
-                      {ev.fatal > 0 && <span className="text-threat">💀 {ev.fatal}</span>}
+                      {ev.fatalities > 0 && <span className="text-threat">💀 {ev.fatalities}</span>}
                     </div>
                     <div
                       className="text-[10px] text-blue-400 cursor-pointer hover:text-white transition-colors mb-1"
-                      onClick={() => navigate(`/actor/${encodeURIComponent(ev.actor)}`)}>
-                      → {ev.actor}
+                      onClick={() => navigate(`/actor/${encodeURIComponent(ev.actor1)}`)}>
+                      → {ev.actor1}
                     </div>
                     {ev.notes && (
                       <div className="text-[9px] text-muted leading-relaxed">
