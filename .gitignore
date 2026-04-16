@@ -25,3 +25,6 @@ dist-ssr
 
 .env
 .env.local
+
+# Internal planning document - not for public
+BLUEPRINT.md

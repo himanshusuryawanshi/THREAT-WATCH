@@ -117,20 +117,31 @@ function getCountryCentroid(countryName) {
 }
 
 // ── Fetch one page from a UCDP endpoint ───────────────────────────────────────
-// endpoint: exact endpoint name from Swagger V2.4 (e.g. 'GEDEvents', 'UcdpPrioConflict')
-// extraParams: additional query params (e.g. { StartDate: '2026-01-01' })
-async function fetchPage(endpoint, page = 1, extraParams = {}) {
-  const params = new URLSearchParams({
-    pagesize: PAGESIZE,
-    page,
-    ...extraParams,
-  })
-  const url = `${BASE}/${endpoint}/${VERSION}?${params}`
-  const res = await axios.get(url, {
-    timeout: 30000,
-    headers: UCDP_HEADERS,
-  })
-  return res.data  // { TotalCount, TotalPages, pagesize, page, Result: [...] }
+// versionOverride: use a different version string (e.g. '25.0.3' for candidate)
+async function fetchPage(endpoint, page = 1, extraParams = {}, versionOverride = null) {
+  const params = new URLSearchParams({ pagesize: PAGESIZE, page, ...extraParams })
+  const ver = versionOverride || VERSION
+  const url = `${BASE}/${endpoint}/${ver}?${params}`
+  const res = await axios.get(url, { timeout: 30000, headers: UCDP_HEADERS })
+  return res.data
+}
+
+// ── Retry wrapper for network errors (ECONNRESET etc.) ────────────────────────
+async function fetchPageWithRetry(endpoint, page, extraParams = {}, versionOverride = null, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetchPage(endpoint, page, extraParams, versionOverride)
+    } catch (err) {
+      const isRetryable = err.code === 'ECONNRESET' || err.code === 'ECONNABORTED' ||
+                          err.code === 'ETIMEDOUT'  || (err.response?.status >= 500)
+      if (isRetryable && attempt < retries) {
+        console.warn(`[ucdp] page ${page} attempt ${attempt} failed (${err.message}) — retrying in 2s`)
+        await new Promise(r => setTimeout(r, 2000))
+        continue
+      }
+      throw err
+    }
+  }
 }
 
 // ── Upsert a batch of normalized events ───────────────────────────────────────
@@ -196,33 +207,26 @@ async function countUcdpEvents() {
 // ── Bulk load ALL GED events (called once when table is empty) ────────────────
 export async function bulkLoadGED() {
   console.log('[ucdp] starting GED bulk load — fetching page 1 to get total...')
-  const first = await fetchPage('GEDEvents', 1)
+  const first = await fetchPageWithRetry('GEDEvents', 1)
   const totalPages = first.TotalPages || 1
   const totalCount = first.TotalCount || 0
   console.log(`[ucdp] GED bulk load: ${totalCount} events across ${totalPages} pages`)
 
   let totalInserted = 0
-
-  // Process first page
   const firstBatch = (first.Result || []).map(raw => withOrigin(normalizeUcdpEvent(raw), raw.country))
   totalInserted += await upsertBatch(firstBatch)
 
-  // Process remaining pages
   for (let page = 2; page <= totalPages; page++) {
     try {
-      const data   = await fetchPage('GEDEvents', page)
+      const data   = await fetchPageWithRetry('GEDEvents', page)
       const events = (data.Result || []).map(raw => withOrigin(normalizeUcdpEvent(raw), raw.country))
-      const n      = await upsertBatch(events)
-      totalInserted += n
-
+      totalInserted += await upsertBatch(events)
       if (page % 50 === 0 || page === totalPages) {
         console.log(`[ucdp] GED bulk load: page ${page}/${totalPages} — ${totalInserted} inserted so far`)
       }
-
-      // Brief pause every 100 pages to avoid overwhelming the API
       if (page % 100 === 0) await new Promise(r => setTimeout(r, 2000))
     } catch (err) {
-      console.warn(`[ucdp] GED page ${page} failed: ${err.message} — skipping`)
+      console.warn(`[ucdp] GED page ${page} failed after retries: ${err.message} — skipping`)
     }
   }
 
@@ -262,6 +266,86 @@ async function loadRecentEvents() {
 
   console.log(`[ucdp] recent events: ${inserted} new`)
   return inserted
+}
+
+// ── Fetch UCDP Candidate Events (monthly releases, covers 2025–present) ──────
+// Version scheme: 25.0.1 = Jan 2025, 25.0.12 = Dec 2025, 26.0.1 = Jan 2026, etc.
+// Uses same gedevents endpoint, same field format — inserted as UCDP_CANDIDATE.
+export async function fetchCandidateEvents() {
+  const candidateVersions = []
+  // Jan–Dec 2025
+  for (let m = 1; m <= 12; m++) candidateVersions.push(`25.0.${m}`)
+  // Jan–Feb 2026 (latest available as of Apr 2026)
+  candidateVersions.push('26.0.1', '26.0.2')
+
+  let totalInserted = 0
+
+  for (const ver of candidateVersions) {
+    try {
+      const first = await fetchPage('gedevents', 1, {}, ver)
+      // 404 / bad response for unreleased months
+      if (!first || !first.TotalCount) continue
+
+      const totalPages = first.TotalPages || 1
+      const totalCount = first.TotalCount || 0
+      console.log(`[ucdp-candidate] ${ver}: ${totalCount} events across ${totalPages} pages`)
+
+      const normalize = raw => {
+        const base = normalizeUcdpEvent(raw)
+        return {
+          ...base,
+          id:     `UCDP_CAND_${raw.id}`,
+          source: 'UCDP_CANDIDATE',
+        }
+      }
+
+      const firstBatch = (first.Result || []).map(raw => withOrigin(normalize(raw), raw.country))
+      totalInserted += await upsertBatch(firstBatch)
+
+      for (let page = 2; page <= totalPages; page++) {
+        try {
+          const data   = await fetchPageWithRetry('gedevents', page, {}, ver)
+          const events = (data.Result || []).map(raw => withOrigin(normalize(raw), raw.country))
+          totalInserted += await upsertBatch(events)
+          if (page % 10 === 0 || page === totalPages) {
+            console.log(`[ucdp-candidate] ${ver}: page ${page}/${totalPages}`)
+          }
+        } catch (err) {
+          console.warn(`[ucdp-candidate] ${ver} page ${page} failed: ${err.message} — skipping`)
+        }
+      }
+    } catch (err) {
+      // 404 = version not yet released — skip silently
+      if (err.response?.status === 404 || err.response?.status === 400) continue
+      console.warn(`[ucdp-candidate] ${ver} failed: ${err.message}`)
+    }
+  }
+
+  console.log(`[ucdp-candidate] total inserted: ${totalInserted}`)
+  return totalInserted
+}
+
+// ── Find the latest available candidate version ───────────────────────────────
+// Returns e.g. '26.0.2' — used by the daily cron to check for new releases
+export async function getLatestCandidateVersion() {
+  const now   = new Date()
+  const year  = now.getFullYear() - 2000  // 26 for 2026
+  const month = now.getMonth() + 1        // 1-12
+
+  // Try current month, then walk back until we find a released version
+  for (let m = month; m >= 1; m--) {
+    const ver = `${year}.0.${m}`
+    try {
+      const res = await fetchPage('gedevents', 1, { pagesize: 1 }, ver)
+      if (res?.TotalCount > 0) return ver
+    } catch (err) {
+      if (err.response?.status !== 404 && err.response?.status !== 400) {
+        console.warn(`[ucdp-candidate] version probe ${ver} failed: ${err.message}`)
+      }
+    }
+  }
+  // Fall back to previous year December
+  return `${year - 1}.0.12`
 }
 
 // ── Sync UCDP PRIO conflicts into the conflicts table ─────────────────────────
@@ -333,6 +417,9 @@ export async function ingestUCDP() {
   } else {
     eventsInserted = await loadRecentEvents()
   }
+
+  // Always fetch/refresh candidate events (monthly releases for 2025–present)
+  eventsInserted += await fetchCandidateEvents()
 
   const conflictsInserted = await syncConflicts()
 

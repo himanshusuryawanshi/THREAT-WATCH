@@ -39,7 +39,12 @@ router.get('/',
     let   i      = 1
 
     if (source && source !== 'all') {
-      conds.push(`source = $${i++}`); params.push(source.toUpperCase())
+      // 'ucdp' includes both verified GED and candidate monthly releases
+      if (source.toLowerCase() === 'ucdp') {
+        conds.push(`source IN ('UCDP', 'UCDP_CANDIDATE')`)
+      } else {
+        conds.push(`source = $${i++}`); params.push(source.toUpperCase())
+      }
     }
     if (type) {
       conds.push(`type = $${i++}`); params.push(type)
@@ -125,10 +130,14 @@ router.get('/stats',
       conds.push(`conflict_id = $${i++}`); params.push(req.query.conflict_id)
     }
     if (req.query.source && req.query.source !== 'all') {
-      conds.push(`source = $${i++}`); params.push(req.query.source.toUpperCase())
+      if (req.query.source.toLowerCase() === 'ucdp') {
+        conds.push(`source IN ('UCDP', 'UCDP_CANDIDATE')`)
+      } else {
+        conds.push(`source = $${i++}`); params.push(req.query.source.toUpperCase())
+      }
     } else {
-      // Default to UCDP only for stats
-      conds.push(`source = 'UCDP'`)
+      // Default: UCDP + candidate for stats
+      conds.push(`source IN ('UCDP', 'UCDP_CANDIDATE')`)
     }
 
     const where = conds.join(' AND ')

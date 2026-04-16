@@ -54,6 +54,9 @@ export default function StatusBar() {
       <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
         UCDP GED
       </span>
+      <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+        UCDP CANDIDATE
+      </span>
       <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest bg-orange-500/10 border border-orange-500/30 text-orange-400">
         NASA FIRMS
       </span>

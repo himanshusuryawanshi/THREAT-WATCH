@@ -30,36 +30,48 @@ const useStore = create((set, get) => ({
   search:      '',
   dataSource:  'ucdp',
 
-  // Layer visibility toggles
+  // ── Layer visibility toggles (BLUEPRINT Part 6 Rule 10: explicit defaults) ──
+  // eventDots     → UCDP conflict event circles on map
+  // strikeArcs    → Animated arcs between origin/destination
+  // thermalAnomalies → NASA FIRMS orange pulsing dots
+  // choropleth    → Country intensity fill layer
   layers: {
-    events:  true,
-    fires:   false,
-    arcs:    true,
+    eventDots:         true,
+    strikeArcs:        false,
+    thermalAnomalies:  true,
+    choropleth:        false,
   },
-  toggleLayer: (name) => set(s => ({
-    layers: { ...s.layers, [name]: !s.layers[name] }
+  toggleLayer: (layer) => set(s => ({
+    layers: { ...s.layers, [layer]: !s.layers[layer] }
   })),
 
-  // Intelligence data (fetched separately from events)
-  breakingNews:       [],
-  conflicts:          [],
-  humanitarianStats:  null,
-  escalationLevels:   { critical: 0, elevated: 0, watch: 0 },
-  alerts:             [],
+  // ── Intelligence data (GDELT — NOT map events) ────────────────────────────
+  breakingNews:      [],
+  conflicts:         [],
+  humanitarianStats: null,
+  escalationLevels:  { critical: 0, elevated: 0, watch: 0, stable: 0 },
+  alerts:            [],
+
+  setBreakingNews:    (news)   => set({ breakingNews: news }),
+  setEscalationLevels:(levels) => set({ escalationLevels: levels }),
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+  sidebarOpen: true,
+  toggleSidebar: () => set(s => ({ sidebarOpen: !s.sidebarOpen })),
 
   // ── Load events from Postgres ─────────────────────────────────────────────
   loadLiveEvents: async (source = 'ucdp') => {
     set({ loading: true, error: null, dataSource: source })
     try {
       // No date range passed — server returns ORDER BY date DESC LIMIT 500
-      // Supports historical UCDP data (1989-2018) without filtering it out
+      // Supports historical UCDP data (1989–Feb 2026) without filtering it out
       const params = new URLSearchParams({ source, limit: 500 })
       const res    = await fetch(`${API}?${params}`)
       const data   = await res.json()
       if (data.status !== undefined || data.events) {
         const events = data.events || []
         set({
-          events:     events,
+          events,
           loading:    false,
           activeType: 'all',
           dateFrom:   null,
@@ -107,10 +119,11 @@ const useStore = create((set, get) => ({
   setActiveType: (type) => { set({ activeType: type }); get().applyFilters() },
   setDateRange:  (from, to) => { set({ dateFrom: from, dateTo: to }); get().applyFilters() },
   setMinFatal:   (val) => { set({ minFatal: val }); get().applyFilters() },
-  setSearch:     (q)   => { set({ search: q });    get().applyFilters() },
+  setSearch:     (q)   => { set({ search: q });     get().applyFilters() },
 
   applyFilters: () => {
     const { events, activeType, dateFrom, dateTo, minFatal, search } = get()
+    // Rule 10: every field must be initialized — fallback to safe defaults
     const type  = activeType || 'all'
     const fatal = minFatal   || 0
     const q     = (search    || '').toLowerCase().trim()

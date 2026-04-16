@@ -8,12 +8,13 @@ const API_BASE = 'http://localhost:3001'
 function today()    { return new Date().toISOString().split('T')[0] }
 function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0] }
 
-export default function Sidebar({ mapRef, layer }) {
+export default function Sidebar({ mapRef }) {
   const {
     filteredEvents, activeType, setActiveType,
     dateFrom, dateTo, setDateRange,
     minFatal, setMinFatal,
     resetFilters, setSelectedEvent,
+    layers,
   } = useStore()
 
   const [typeOpen, setTypeOpen] = useState(false)
@@ -42,7 +43,7 @@ export default function Sidebar({ mapRef, layer }) {
     ? '#ffffff'
     : EVENT_TYPES[activeType]?.color || '#ffffff'
 
-  if (layer === 'strikes') {
+  if (layers?.strikeArcs) {
     return <StrikesPanel />
   }
 

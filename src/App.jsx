@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Header      from './components/Header'
 import NewsStrip   from './components/NewsStrip'
@@ -14,10 +14,10 @@ import useStore    from './store/useStore'
 const SIDEBAR_W = 220  // must match Sidebar width
 
 function Dashboard({ mapRef, setMapRef }) {
-  const [layer,       setLayer]       = useState('markers')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const loading = useStore(s => s.loading)
-  const events  = useStore(s => s.events)
+  const loading     = useStore(s => s.loading)
+  const events      = useStore(s => s.events)
+  const sidebarOpen = useStore(s => s.sidebarOpen)
+  const toggleSidebar = useStore(s => s.toggleSidebar)
 
   // Sync CSS variable with initial state
   useEffect(() => {
@@ -26,17 +26,13 @@ function Dashboard({ mapRef, setMapRef }) {
     )
   }, [])
 
-  function toggleSidebar() {
-    setSidebarOpen(o => {
-      const next = !o
-      // CSS var drives the Mapbox zoom control position via MapView's <style>
-      document.documentElement.style.setProperty(
-        '--sidebar-offset',
-        next ? `${SIDEBAR_W + 10}px` : '10px'
-      )
-      return next
-    })
-  }
+  // Keep CSS var in sync when sidebarOpen changes
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--sidebar-offset',
+      sidebarOpen ? `${SIDEBAR_W + 10}px` : '10px'
+    )
+  }, [sidebarOpen])
 
   return (
     <div className="flex flex-col h-screen bg-dark overflow-hidden">
@@ -56,7 +52,7 @@ function Dashboard({ mapRef, setMapRef }) {
           transform:  sidebarOpen ? 'translateX(0)' : `translateX(-${SIDEBAR_W}px)`,
           transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
         }}>
-          <Sidebar mapRef={mapRef} layer={layer} />
+          <Sidebar mapRef={mapRef} />
         </div>
 
         {/* ── TOGGLE BUTTON ────────────────────────────────────── */}
@@ -96,8 +92,6 @@ function Dashboard({ mapRef, setMapRef }) {
         <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <MapView
             onMapReady={setMapRef}
-            layer={layer}
-            setLayer={setLayer}
             sidebarOpen={sidebarOpen}
           />
 
