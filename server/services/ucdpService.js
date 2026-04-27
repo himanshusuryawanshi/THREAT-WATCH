@@ -268,45 +268,76 @@ async function loadRecentEvents() {
   return inserted
 }
 
+// ── Load already-ingested candidate versions from ingestion_log ───────────────
+async function getIngestedVersions() {
+  try {
+    const r = await pool.query(`SELECT TRIM(month) AS month FROM ingestion_log`)
+    return new Set(r.rows.map(r => r.month))
+  } catch {
+    return new Set()
+  }
+}
+
+// ── Mark a candidate version as fully ingested ────────────────────────────────
+async function markVersionIngested(version, eventCount) {
+  try {
+    await pool.query(`
+      INSERT INTO ingestion_log (month, event_count, ingested_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (month) DO UPDATE
+        SET event_count = EXCLUDED.event_count,
+            ingested_at = NOW()
+    `, [version, eventCount])
+  } catch (err) {
+    console.warn(`[ucdp-candidate] failed to log version ${version}:`, err.message)
+  }
+}
+
 // ── Fetch UCDP Candidate Events (monthly releases, covers 2025–present) ──────
 // Version scheme: 25.0.1 = Jan 2025, 25.0.12 = Dec 2025, 26.0.1 = Jan 2026, etc.
 // Uses same gedevents endpoint, same field format — inserted as UCDP_CANDIDATE.
+// Skips versions already recorded in ingestion_log (avoids re-fetching on restart).
 export async function fetchCandidateEvents() {
   const candidateVersions = []
-  // Jan–Dec 2025
   for (let m = 1; m <= 12; m++) candidateVersions.push(`25.0.${m}`)
-  // Jan–Feb 2026 (latest available as of Apr 2026)
   candidateVersions.push('26.0.1', '26.0.2')
 
+  // Only fetch versions not yet fully ingested
+  const alreadyIngested = await getIngestedVersions()
+  const pending = candidateVersions.filter(v => !alreadyIngested.has(v))
+
+  if (pending.length === 0) {
+    console.log('[ucdp-candidate] all versions already ingested — skipping')
+    return 0
+  }
+
+  console.log(`[ucdp-candidate] fetching ${pending.length} new versions: ${pending.join(', ')}`)
   let totalInserted = 0
 
-  for (const ver of candidateVersions) {
+  for (const ver of pending) {
     try {
       const first = await fetchPage('gedevents', 1, {}, ver)
-      // 404 / bad response for unreleased months
       if (!first || !first.TotalCount) continue
 
       const totalPages = first.TotalPages || 1
       const totalCount = first.TotalCount || 0
       console.log(`[ucdp-candidate] ${ver}: ${totalCount} events across ${totalPages} pages`)
 
-      const normalize = raw => {
-        const base = normalizeUcdpEvent(raw)
-        return {
-          ...base,
-          id:     `UCDP_CAND_${raw.id}`,
-          source: 'UCDP_CANDIDATE',
-        }
-      }
+      const normalize = raw => ({
+        ...normalizeUcdpEvent(raw),
+        id:     `UCDP_CAND_${raw.id}`,
+        source: 'UCDP_CANDIDATE',
+      })
 
+      let versionInserted = 0
       const firstBatch = (first.Result || []).map(raw => withOrigin(normalize(raw), raw.country))
-      totalInserted += await upsertBatch(firstBatch)
+      versionInserted += await upsertBatch(firstBatch)
 
       for (let page = 2; page <= totalPages; page++) {
         try {
           const data   = await fetchPageWithRetry('gedevents', page, {}, ver)
           const events = (data.Result || []).map(raw => withOrigin(normalize(raw), raw.country))
-          totalInserted += await upsertBatch(events)
+          versionInserted += await upsertBatch(events)
           if (page % 10 === 0 || page === totalPages) {
             console.log(`[ucdp-candidate] ${ver}: page ${page}/${totalPages}`)
           }
@@ -314,8 +345,11 @@ export async function fetchCandidateEvents() {
           console.warn(`[ucdp-candidate] ${ver} page ${page} failed: ${err.message} — skipping`)
         }
       }
+
+      // Mark as done so future restarts skip this version
+      await markVersionIngested(ver, versionInserted)
+      totalInserted += versionInserted
     } catch (err) {
-      // 404 = version not yet released — skip silently
       if (err.response?.status === 404 || err.response?.status === 400) continue
       console.warn(`[ucdp-candidate] ${ver} failed: ${err.message}`)
     }
@@ -370,7 +404,8 @@ async function syncConflicts() {
       for (const c of rows) {
         if (!c.conflict_id && !c.id) continue
         const id      = `ucdp_${c.conflict_id || c.id}`
-        const title   = c.conflict_name || c.name || 'Unknown conflict'
+        const actorTitle = [c.side_a, c.side_b].filter(Boolean).join(' vs ')
+        const title   = c.conflict_name || c.name || actorTitle || 'Unknown conflict'
         const country = c.location || c.territory_name || 'Unknown'
 
         await client.query(`

@@ -30,16 +30,34 @@ const useStore = create((set, get) => ({
   search:      '',
   dataSource:  'ucdp',
 
+  // ── Global timeframe (drives map + all pages) ─────────────────────────────
+  // preset: '7d' | '30d' | '90d' | '1y' | 'custom'
+  // customFrom/customTo only used when preset === 'custom'
+  timeframe:   '30d',
+  customFrom:  null,
+  customTo:    null,
+
+  setTimeframe: (preset) => {
+    set({ timeframe: preset, customFrom: null, customTo: null })
+    get().loadLiveEvents(get().dataSource)
+  },
+  setCustomRange: (from, to) => {
+    set({ timeframe: 'custom', customFrom: from, customTo: to })
+    get().loadLiveEvents(get().dataSource)
+  },
+
   // ── Layer visibility toggles (BLUEPRINT Part 6 Rule 10: explicit defaults) ──
-  // eventDots     → UCDP conflict event circles on map
-  // strikeArcs    → Animated arcs between origin/destination
+  // eventDots        → UCDP conflict event circles on map
+  // strikeArcs       → Animated arcs between origin/destination
   // thermalAnomalies → NASA FIRMS orange pulsing dots
-  // choropleth    → Country intensity fill layer
+  // choropleth       → Country intensity fill layer
+  // refugeeFlows     → UNHCR refugee flow arcs (cyan, off by default)
   layers: {
     eventDots:         true,
     strikeArcs:        false,
     thermalAnomalies:  true,
     choropleth:        false,
+    refugeeFlows:      false,
   },
   toggleLayer: (layer) => set(s => ({
     layers: { ...s.layers, [layer]: !s.layers[layer] }
@@ -63,9 +81,15 @@ const useStore = create((set, get) => ({
   loadLiveEvents: async (source = 'ucdp') => {
     set({ loading: true, error: null, dataSource: source })
     try {
-      // No date range passed — server returns ORDER BY date DESC LIMIT 500
-      // Supports historical UCDP data (1989–Feb 2026) without filtering it out
-      const params = new URLSearchParams({ source, limit: 500 })
+      const { timeframe, customFrom, customTo } = get()
+      const params = new URLSearchParams({ source, limit: 5000 })
+      if (timeframe === 'custom' && customFrom && customTo) {
+        params.set('from', customFrom)
+        params.set('to',   customTo)
+      } else {
+        // Anchors to MAX(date) in DB — handles UCDP's ~2 month lag
+        params.set('timeframe', timeframe || '30d')
+      }
       const res    = await fetch(`${API}?${params}`)
       const data   = await res.json()
       if (data.status !== undefined || data.events) {

@@ -17,7 +17,7 @@ const SOURCE_ID = 'firms-fires'
 const LAYER_GLOW = 'firms-glow'
 const LAYER_CORE = 'firms-core'
 
-export default function ThermalAnomalyLayer({ map, ready }) {
+export default function ThermalAnomalyLayer({ map, ready, styleVersion = 0 }) {
   const layers   = useStore(s => s.layers)
   const popupRef = useRef(null)
   const rafRef   = useRef(null)
@@ -51,7 +51,7 @@ export default function ThermalAnomalyLayer({ map, ready }) {
       stopPulse(rafRef)
       removeLayers(map, popupRef)
     }
-  }, [map, ready, fires])
+  }, [map, ready, fires, styleVersion])
 
   // ── Toggle visibility ───────────────────────────────────────────────────
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function ThermalAnomalyLayer({ map, ready }) {
     } else {
       stopPulse(rafRef)
     }
-  }, [map, ready, layers.thermalAnomalies])
+  }, [map, ready, layers.thermalAnomalies, styleVersion])
 
   // ── Click + hover handlers ──────────────────────────────────────────────
   useEffect(() => {
@@ -126,7 +126,7 @@ export default function ThermalAnomalyLayer({ map, ready }) {
       map.off('mouseenter', LAYER_CORE, onMouseEnter)
       map.off('mouseleave', LAYER_CORE, onMouseLeave)
     }
-  }, [map, ready, fires])
+  }, [map, ready, fires, styleVersion])
 
   return null
 }

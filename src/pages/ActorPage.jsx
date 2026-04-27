@@ -4,6 +4,7 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import Chart from 'chart.js/auto'
 import { getEventColor, getMarkerRadius } from '../utils/constants'
+import useTimeframe from '../hooks/useTimeframe'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN
 
@@ -18,20 +19,21 @@ export default function ActorPage() {
   const chartInst   = useRef(null)
 
   const actor = decodeURIComponent(name)
+  const { tfQuery, tfLabel } = useTimeframe()
 
   const [events,  setEvents]  = useState([])
   const [loading, setLoading] = useState(true)
 
-  // ── Fetch all events for this actor from Postgres ─────────────────────────
+  // ── Fetch events for this actor scoped to global timeframe ────────────────
   useEffect(() => {
     setLoading(true)
     const params = new URLSearchParams({ actor, source: 'ucdp', limit: 5000 })
-    fetch(`${API}?${params}`)
+    fetch(`${API}?${params}&${tfQuery}`)
       .then(r => r.json())
       .then(data => { if (data.events) setEvents(data.events) })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [actor])
+  }, [actor, tfQuery])
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   const fatal = events.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0)

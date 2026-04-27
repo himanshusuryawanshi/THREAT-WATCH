@@ -19,8 +19,8 @@ function daysInterval(tf) {
 router.get('/',
   cacheMiddleware(
     req => {
-      const { source, type, country, bbox, from, date_from, to, date_to, actor } = req.query
-      return `events:${source||'all'}:${country||''}:${type||''}:${bbox||''}:${from||date_from||''}:${to||date_to||''}:${actor||''}`
+      const { source, type, country, bbox, from, date_from, to, date_to, actor, timeframe } = req.query
+      return `events:${source||'all'}:${country||''}:${type||''}:${bbox||''}:${from||date_from||''}:${to||date_to||''}:${actor||''}:${timeframe||''}`
     },
     300   // 5 min
   ),
@@ -29,7 +29,7 @@ router.get('/',
     const {
       source, type, country, conflict_id,
       date_from, date_to, from, to,
-      min_precision, bbox,
+      min_precision, bbox, timeframe,
     } = req.query
     const limit  = Math.min(parseInt(req.query.limit)  || 500,  5000)
     const offset = parseInt(req.query.offset) || 0
@@ -61,14 +61,20 @@ router.get('/',
       params.push(a, a)
     }
 
-    // Accept both ?from= and ?date_from=
+    // timeframe=30d anchors to MAX(date) in DB, not NOW() — handles UCDP's ~2 month lag
+    if (timeframe) {
+      const days = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 }[timeframe]
+      if (days) {
+        conds.push(`date >= (SELECT MAX(date) FROM events) - ($${i++} || ' days')::INTERVAL`)
+        params.push(days)
+      }
+    }
+
+    // Accept both ?from= and ?date_from= (explicit date range overrides timeframe)
     const df = date_from || from
     const dt = date_to   || to
     if (df) { conds.push(`date >= $${i++}`); params.push(df) }
     if (dt) { conds.push(`date <= $${i++}`); params.push(dt) }
-
-    // No date restriction by default — rely on ORDER BY date DESC LIMIT
-    // UCDP data extends back to 1989; restricting to 7 days returns nothing
 
     if (min_precision) {
       conds.push(`geo_precision <= $${i++}`); params.push(parseInt(min_precision))
@@ -108,20 +114,30 @@ router.get('/',
 })
 
 // ── GET /api/events/stats ─────────────────────────────────────────────────────
-// Query params: country, conflict_id, timeframe ('7d'|'30d'|'90d'|'1y'), source
-// Cache: 5 min — reads from mv_country_stats for global/country totals (rule 13)
+// Query params: country, conflict_id, timeframe ('7d'|'30d'|'90d'|'1y'),
+//               from=YYYY-MM-DD, to=YYYY-MM-DD, source
+// Cache: 5 min
 router.get('/stats',
   cacheMiddleware(
-    req => `stats:${req.query.country || 'global'}:${req.query.timeframe || '30d'}:${req.query.conflict_id || ''}`,
-    300   // 5 min
+    req => `stats:${req.query.country||'global'}:${req.query.timeframe||'30d'}:${req.query.from||''}:${req.query.to||''}:${req.query.conflict_id||''}`,
+    300
   ),
   async (req, res) => {
   try {
-    const days   = daysInterval(req.query.timeframe)
-    // Anchor to max event date so historical UCDP data shows correctly
-    const conds  = [`date >= (SELECT MAX(date) FROM events WHERE source='UCDP') - ($1 || ' days')::INTERVAL`]
-    const params = [days]
-    let   i      = 2
+    const { from, to } = req.query
+
+    // Build date condition — custom range takes priority over preset
+    let conds, params, i
+    if (from && to) {
+      conds  = [`date >= $1`, `date <= $2`]
+      params = [from, to]
+      i      = 3
+    } else {
+      const days = daysInterval(req.query.timeframe)
+      conds  = [`date >= (SELECT MAX(date) FROM events WHERE source='UCDP') - ($1 || ' days')::INTERVAL`]
+      params = [days]
+      i      = 2
+    }
 
     if (req.query.country) {
       conds.push(`country ILIKE $${i++}`); params.push(req.query.country)
@@ -142,9 +158,8 @@ router.get('/stats',
 
     const where = conds.join(' AND ')
 
-    // Use materialized views for global/country aggregations (rule 13)
-    // Fall back to live query only when conflict_id filter is present (no MV for that)
-    if (!req.query.conflict_id && (req.query.timeframe === '30d' || !req.query.timeframe)) {
+    // Use materialized views for 30d preset (fast path) — skip for custom ranges
+    if (!req.query.conflict_id && !from && !to && (req.query.timeframe === '30d' || !req.query.timeframe)) {
       const [mvTotals, mvByType, byActor, trend] = await Promise.all([
         // mv_country_stats for top countries + totals (all-time; UCDP is historical)
         req.query.country

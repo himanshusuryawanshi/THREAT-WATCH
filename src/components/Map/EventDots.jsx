@@ -9,7 +9,7 @@
  * Click → sets selectedEvent in store (InfoPanel reads it).
  * Hover → pointer cursor + mapbox tooltip.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import useStore from '../../store/useStore'
 import {
@@ -20,36 +20,21 @@ import {
   isMapPlottable,
 } from '../../store/visualizationRules'
 
-const API_BASE = 'http://localhost:3001'
 const SOURCE_ID = 'ucdp-events'
 const LAYER_GLOW = 'ucdp-events-glow'
 const LAYER_DOTS = 'ucdp-events-dots'
 
-export default function EventDots({ map, ready }) {
+export default function EventDots({ map, ready, styleVersion = 0 }) {
   const setSelectedEvent = useStore(s => s.setSelectedEvent)
   const layers           = useStore(s => s.layers)
   const popupRef         = useRef(null)
-  const [events, setEvents] = useState([])
-  const mountedRef       = useRef(true)
 
-  // ── Fetch UCDP events on mount ──────────────────────────────────────────
-  useEffect(() => {
-    mountedRef.current = true
-    fetch(`${API_BASE}/api/events?limit=2000`)
-      .then(r => r.json())
-      .then(({ events: data }) => {
-        if (!mountedRef.current) return
-        // Both UCDP and UCDP_CANDIDATE are plottable — filter out anything else
-        const plottable = (data || []).filter(isMapPlottable)
-        setEvents(plottable)
-        console.log(`[EventDots] loaded ${plottable.length} plottable events`)
-      })
-      .catch(err => console.error('[EventDots] fetch failed:', err.message))
+  // Read directly from store — loadLiveEvents already fetches with the correct
+  // timeframe whenever the date picker changes, so no separate fetch needed.
+  const storeEvents = useStore(s => s.events)
+  const events      = storeEvents.filter(isMapPlottable)
 
-    return () => { mountedRef.current = false }
-  }, [])
-
-  // ── Add/remove Mapbox layers when map, events, or ready state change ────
+  // ── Add/remove Mapbox layers when map, events, ready, or style changes ──
   useEffect(() => {
     if (!map || !ready || !events.length) return
 
@@ -57,7 +42,7 @@ export default function EventDots({ map, ready }) {
     addLayers(map, geojson)
 
     return () => removeLayers(map, popupRef)
-  }, [map, ready, events])
+  }, [map, ready, events, styleVersion])
 
   // ── Toggle visibility from store ────────────────────────────────────────
   useEffect(() => {
@@ -65,7 +50,7 @@ export default function EventDots({ map, ready }) {
     const visibility = layers.eventDots ? 'visible' : 'none'
     safeSetVisibility(map, LAYER_GLOW, visibility)
     safeSetVisibility(map, LAYER_DOTS, visibility)
-  }, [map, ready, layers.eventDots])
+  }, [map, ready, layers.eventDots, styleVersion])
 
   // ── Wire up Mapbox event handlers ───────────────────────────────────────
   useEffect(() => {
@@ -148,7 +133,7 @@ export default function EventDots({ map, ready }) {
       map.off('mouseleave', LAYER_DOTS, onMouseLeave)
       map.off('click',      LAYER_DOTS, onClick)
     }
-  }, [map, ready, events])
+  }, [map, ready, events, styleVersion])
 
   // Nothing rendered — this is a pure Mapbox layer controller
   return null

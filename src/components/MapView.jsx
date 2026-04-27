@@ -18,6 +18,8 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import useStore from '../store/useStore'
 import EventDots           from './Map/EventDots'
 import ThermalAnomalyLayer from './Map/ThermalAnomalyLayer'
+import ChoroplethLayer     from './Map/ChoroplethLayer'
+import RefugeeFlowArcs     from './Map/RefugeeFlowArcs'
 import LayerToggle         from './Map/LayerToggle'
 import InfoPanel           from './Panels/InfoPanel'
 import StrikeArcs          from './StrikeArcs'
@@ -25,15 +27,16 @@ import StrikeArcs          from './StrikeArcs'
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN
 
 const DARK_STYLE      = 'mapbox://styles/mapbox/dark-v11'
-const SIDEBAR_W       = 220   // must match App.jsx
+const SIDEBAR_W       = 360   // must match App.jsx
 const TRANSITION      = 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-const GLOBE_SPIN_MS   = 3000  // spin for 3 seconds on load, then stop
+const GLOBE_SPIN_MS   = 5000  // spin for 5 seconds on load, then stop
 
 export default function MapView({ onMapReady, sidebarOpen }) {
   const mapRef      = useRef(null)
   const mapInstance = useRef(null)
   const spinRafRef  = useRef(null)
   const [ready, setReady] = useState(false)
+  const [styleVersion, setStyleVersion] = useState(0)
 
   const layers             = useStore(s => s.layers)
   const clearSelectedEvent = useStore(s => s.clearSelectedEvent)
@@ -45,8 +48,8 @@ export default function MapView({ onMapReady, sidebarOpen }) {
     const map = new mapboxgl.Map({
       container:  mapRef.current,
       style:      DARK_STYLE,
-      center:     [10, 20],
-      zoom:       2,
+      center:     [30, 15],   // Africa/Middle East — most conflicts visible on load
+      zoom:       2.5,
       minZoom:    1.5,
       maxZoom:    18,
       projection: 'globe',
@@ -149,16 +152,30 @@ export default function MapView({ onMapReady, sidebarOpen }) {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       />
 
-      {/* ── Map data layers (render null until map+ready) ─────── */}
+      {/* ── Map data layers — ORDER MATTERS (bottom to top) ─────── */}
       {ready && mapInstance.current && (
         <>
+          {/* Choropleth first — renders below all dot layers */}
+          <ChoroplethLayer
+            map={mapInstance.current}
+            ready={ready}
+            styleVersion={styleVersion}
+          />
           <EventDots
             map={mapInstance.current}
             ready={ready}
+            styleVersion={styleVersion}
           />
           <ThermalAnomalyLayer
             map={mapInstance.current}
             ready={ready}
+            styleVersion={styleVersion}
+          />
+          {/* Refugee flows above thermal, below strikes */}
+          <RefugeeFlowArcs
+            map={mapInstance.current}
+            ready={ready}
+            styleVersion={styleVersion}
           />
           {layers.strikeArcs && (
             <StrikeArcs map={mapInstance.current} />
@@ -173,7 +190,7 @@ export default function MapView({ onMapReady, sidebarOpen }) {
       <InfoPanel />
 
       {/* ── Map style toggle ──────────────────────────────────── */}
-      <MapStyleToggle map={mapInstance.current} />
+      <MapStyleToggle map={mapInstance.current} onStyleChange={() => setStyleVersion(v => v + 1)} />
 
       {/* ── Legend ────────────────────────────────────────────── */}
       <Legend layers={layers} />
@@ -220,7 +237,7 @@ function stopGlobeSpin(rafRef) {
 }
 
 // ── Map style toggle (DARK / SATELLITE) ──────────────────────────────────────
-function MapStyleToggle({ map }) {
+function MapStyleToggle({ map, onStyleChange }) {
   const [style, setStyle] = useState('dark')
 
   const STYLES = {
@@ -234,13 +251,15 @@ function MapStyleToggle({ map }) {
     map.setStyle(STYLES[id])
     map.once('style.load', () => {
       if (id === 'dark') applyFog(map)
+      // Increment styleVersion so all layer components re-add their sources/layers
+      onStyleChange?.()
     })
   }
 
   return (
     <div style={{
       position: 'absolute',
-      top:      50,
+      top:      170,   /* below the 4-button LayerToggle panel (~156px tall from top:10) */
       right:    10,
       zIndex:   600,
       display:  'flex',

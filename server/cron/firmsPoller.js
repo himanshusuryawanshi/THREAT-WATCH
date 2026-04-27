@@ -4,10 +4,12 @@ import { ingestFIRMS } from '../services/firmsService.js'
 export function startFirmsPoller() {
   console.log('[firms-poller] starting — every 3 hours (satellite pass frequency)')
 
-  // Run immediately on boot
-  ingestFIRMS().catch(err => {
-    console.error('[firms-poller] initial ingest failed:', err.message)
-  })
+  // Delay 10s on boot so API requests can be served before FIRMS fetching starts
+  setTimeout(() => {
+    ingestFIRMS().catch(err =>
+      console.error('[firms-poller] initial ingest failed:', err.message)
+    )
+  }, 10000)
 
   // Every 3 hours — FIRMS NRT data updates within 3h of satellite overpass
   cron.schedule('0 */3 * * *', async () => {

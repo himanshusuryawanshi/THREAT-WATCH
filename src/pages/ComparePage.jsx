@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Chart from 'chart.js/auto'
 import { getEventColor } from '../utils/constants'
+import useTimeframe from '../hooks/useTimeframe'
 
 const API = 'http://localhost:3001/api'
 
 // ── Per-country stats panel — fetches its own data ────────────────────────────
-function CountryStats({ country, accentColor }) {
+function CountryStats({ country, accentColor, tfQuery }) {
   const chartRef  = useRef(null)
   const chartInst = useRef(null)
 
@@ -17,12 +18,12 @@ function CountryStats({ country, accentColor }) {
     if (!country) return
     setLoading(true)
     const params = new URLSearchParams({ country, source: 'ucdp', limit: 5000 })
-    fetch(`${API}/events?${params}`)
+    fetch(`${API}/events?${params}&${tfQuery}`)
       .then(r => r.json())
       .then(data => { if (data.events) setEvents(data.events) })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [country])
+  }, [country, tfQuery])
 
   const fatal     = events.reduce((s, e) => s + (parseInt(e.fatalities) || 0), 0)
   const riskScore = Math.min(99, Math.round(events.length * 0.4 + fatal * 0.3))
@@ -148,14 +149,15 @@ function CountryStats({ country, accentColor }) {
 // ── Main compare page ─────────────────────────────────────────────────────────
 export default function ComparePage() {
   const navigate = useNavigate()
+  const { tfQuery, tfLabel } = useTimeframe()
 
   const [countries, setCountries] = useState([])
   const [countryA,  setCountryA]  = useState('Ukraine')
   const [countryB,  setCountryB]  = useState('Sudan')
 
-  // Fetch country list from stats API (top 20 countries by event count)
+  // Fetch country list from stats API — scoped to selected timeframe
   useEffect(() => {
-    fetch(`${API}/events/stats?timeframe=1y`)
+    fetch(`${API}/events/stats?${tfQuery}`)
       .then(r => r.json())
       .then(data => {
         const list = (data.by_country || []).map(r => r.country).filter(Boolean).sort()
@@ -174,7 +176,7 @@ export default function ComparePage() {
         ]
         setCountries(fallback)
       })
-  }, [])
+  }, [tfQuery])
 
   return (
     <div className="h-screen bg-dark flex flex-col overflow-hidden">
@@ -189,7 +191,7 @@ export default function ComparePage() {
           COUNTRY COMPARE
         </div>
         <div className="text-[10px] text-muted ml-auto font-mono">
-          ALL TIME DATA · UCDP
+          {tfLabel.toUpperCase()} · UCDP
         </div>
       </div>
 
@@ -208,7 +210,7 @@ export default function ComparePage() {
             </select>
             <div className="text-[10px] text-blue-400 font-bold tracking-widest">COUNTRY A</div>
           </div>
-          <CountryStats country={countryA} accentColor="#38bdf8" />
+          <CountryStats country={countryA} accentColor="#38bdf8" tfQuery={tfQuery} />
         </div>
 
         {/* VS divider */}
@@ -230,7 +232,7 @@ export default function ComparePage() {
               {countries.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <CountryStats country={countryB} accentColor="#f97316" />
+          <CountryStats country={countryB} accentColor="#f97316" tfQuery={tfQuery} />
         </div>
 
       </div>

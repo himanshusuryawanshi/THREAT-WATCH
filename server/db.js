@@ -13,7 +13,7 @@ const pool = new Pool({
   password: process.env.PG_PASSWORD || 'threatwatch_dev',
   max:      20,
   idleTimeoutMillis:       30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000,  // raised from 2s — handles pool pressure during ingest
 })
 
 pool.on('error', (err) => {

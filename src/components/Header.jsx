@@ -2,24 +2,195 @@ import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store/useStore'
 
+// ── Date Range Picker ─────────────────────────────────────────────────────────
+const PRESETS = [
+  { key: '7d',  label: '7D'  },
+  { key: '30d', label: '30D' },
+  { key: '90d', label: '90D' },
+  { key: '1y',  label: '1Y'  },
+]
+
+function DateRangePicker() {
+  const timeframe      = useStore(s => s.timeframe)
+  const customFrom     = useStore(s => s.customFrom)
+  const customTo       = useStore(s => s.customTo)
+  const setTimeframe   = useStore(s => s.setTimeframe)
+  const setCustomRange = useStore(s => s.setCustomRange)
+
+  const [showCustom, setShowCustom] = useState(false)
+  const [from, setFrom]             = useState(customFrom || '')
+  const [to,   setTo]               = useState(customTo   || '')
+
+  function applyCustom() {
+    if (from && to && from <= to) {
+      setCustomRange(from, to)
+      setShowCustom(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative' }}>
+      {/* Label */}
+      <span style={{
+        fontFamily:    "'JetBrains Mono', monospace",
+        fontSize:       7,
+        letterSpacing: '1.5px',
+        color:         '#4b5563',
+        marginRight:   2,
+        whiteSpace:    'nowrap',
+      }}>
+        RANGE
+      </span>
+
+      {/* Preset buttons */}
+      {PRESETS.map(({ key, label }) => {
+        const active = timeframe === key
+        return (
+          <button
+            key={key}
+            onClick={() => { setTimeframe(key); setShowCustom(false) }}
+            style={{
+              padding:       '3px 7px',
+              borderRadius:   3,
+              fontSize:       8,
+              fontWeight:     700,
+              letterSpacing:  1,
+              fontFamily:     "'JetBrains Mono', monospace",
+              cursor:         'pointer',
+              transition:     'all 0.12s',
+              background:     active ? 'rgba(239,68,68,0.15)' : 'transparent',
+              border:         active ? '0.5px solid rgba(239,68,68,0.5)' : '0.5px solid rgba(255,255,255,0.08)',
+              color:          active ? '#ef4444' : '#6b7280',
+            }}
+          >
+            {label}
+          </button>
+        )
+      })}
+
+      {/* Custom button */}
+      <button
+        onClick={() => setShowCustom(v => !v)}
+        style={{
+          padding:       '3px 7px',
+          borderRadius:   3,
+          fontSize:       8,
+          fontWeight:     700,
+          letterSpacing:  1,
+          fontFamily:     "'JetBrains Mono', monospace",
+          cursor:         'pointer',
+          transition:     'all 0.12s',
+          background:     timeframe === 'custom' ? 'rgba(59,130,246,0.15)' : 'transparent',
+          border:         timeframe === 'custom' ? '0.5px solid rgba(59,130,246,0.5)' : '0.5px solid rgba(255,255,255,0.08)',
+          color:          timeframe === 'custom' ? '#3b82f6' : '#6b7280',
+        }}
+      >
+        {timeframe === 'custom' && customFrom
+          ? `${customFrom.slice(2)} – ${(customTo||'').slice(2)}`
+          : 'CUSTOM'}
+      </button>
+
+      {/* Custom date popover */}
+      {showCustom && (
+        <div style={{
+          position:     'absolute',
+          top:          '110%',
+          left:         0,
+          zIndex:       1000,
+          background:   '#06090e',
+          border:       '0.5px solid #1e2d3d',
+          borderRadius:  6,
+          padding:      '10px 12px',
+          display:      'flex',
+          alignItems:   'center',
+          gap:           8,
+          boxShadow:    '0 8px 32px rgba(0,0,0,0.6)',
+          whiteSpace:   'nowrap',
+        }}>
+          <style>{`
+            .tw-date-input {
+              background: #0d1117 !important;
+              border: 0.5px solid #1e2d3d !important;
+              border-radius: 3px !important;
+              color: #c9d1d9 !important;
+              font-family: 'JetBrains Mono', monospace !important;
+              font-size: 9px !important;
+              padding: 3px 6px !important;
+              outline: none !important;
+              color-scheme: dark;
+            }
+            .tw-date-input:focus { border-color: #ef4444 !important; }
+          `}</style>
+          <span style={{ fontSize: 8, color: '#4b5563', fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1 }}>FROM</span>
+          <input
+            type="date"
+            className="tw-date-input"
+            value={from}
+            max={to || undefined}
+            onChange={e => setFrom(e.target.value)}
+          />
+          <span style={{ fontSize: 8, color: '#4b5563', fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1 }}>TO</span>
+          <input
+            type="date"
+            className="tw-date-input"
+            value={to}
+            min={from || undefined}
+            onChange={e => setTo(e.target.value)}
+          />
+          <button
+            onClick={applyCustom}
+            disabled={!from || !to || from > to}
+            style={{
+              padding:      '3px 10px',
+              borderRadius:  3,
+              fontSize:      8,
+              fontWeight:    700,
+              letterSpacing: 1,
+              fontFamily:    "'JetBrains Mono', monospace",
+              cursor:        (!from || !to || from > to) ? 'not-allowed' : 'pointer',
+              background:    (!from || !to || from > to) ? 'transparent' : 'rgba(239,68,68,0.15)',
+              border:        '0.5px solid rgba(239,68,68,0.4)',
+              color:         (!from || !to || from > to) ? '#374151' : '#ef4444',
+              transition:    'all 0.12s',
+            }}
+          >
+            APPLY
+          </button>
+          <button
+            onClick={() => setShowCustom(false)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#4b5563',
+              cursor: 'pointer',
+              fontSize: 10,
+              padding: '2px 4px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const API_BASE = 'http://localhost:3001'
 
+// Actual UCDP event type values stored in the DB (snake_case from normalization.js)
 const EVENT_TYPES = [
-  'Battles',
-  'Explosions/Remote violence',
-  'Violence against civilians',
-  'Protests',
-  'Riots',
-  'Strategic developments',
+  'battle',
+  'violence_against_civilians',
 ]
 
 const EVENT_TYPE_COLORS = {
-  'Battles':                    '#ff2a2a',
-  'Explosions/Remote violence': '#f97316',
-  'Violence against civilians': '#fbbf24',
-  'Protests':                   '#38bdf8',
-  'Riots':                      '#a855f7',
-  'Strategic developments':     '#6b7280',
+  'battle':                    '#ef4444',
+  'violence_against_civilians':'#fbbf24',
+}
+
+const EVENT_TYPE_LABELS = {
+  'battle':                    'Battles',
+  'violence_against_civilians':'Violence Against Civilians',
 }
 
 export default function Header() {
@@ -31,21 +202,28 @@ export default function Header() {
   const [suggestions,   setSuggestions]   = useState({ countries: [], types: [] })
   const [showDrop,      setShowDrop]      = useState(false)
   const [alertSummary,  setAlertSummary]  = useState(null)
+  const [allCountries,  setAllCountries]  = useState([])
 
   useEffect(() => {
+    // Pre-fetch full country list from the DB (all 129 conflict countries)
+    fetch(`${API_BASE}/api/geo/choropleth`)
+      .then(r => r.json())
+      .then(d => {
+        const list = (d.countries || [])
+          .map(c => c.country)
+          .filter(Boolean)
+          .sort()
+        setAllCountries(list)
+      })
+      .catch(() => {})
+
     fetch(`${API_BASE}/api/alerts`)
       .then(r => r.json())
       .then(d => setAlertSummary(d.summary || null))
       .catch(() => {})
   }, [])
 
-  function getCountries() {
-    const events = useStore.getState().events
-    return [...new Set(events.map(e => e.country).filter(Boolean))].sort()
-  }
-
   function buildSuggestions(val) {
-    // Read the raw value — no trim so partial words like 'Ind' work fully
     if (!val) {
       setSuggestions({ countries: [], types: [] })
       setShowDrop(false)
@@ -54,13 +232,16 @@ export default function Header() {
 
     const q = val.toLowerCase()
 
-    const countryMatches = getCountries()
+    const countryMatches = allCountries
       .filter(c => c.toLowerCase().startsWith(q))
-      .slice(0, 5)
+      .slice(0, 6)
 
+    // Match against both the raw type key and its display label
     const typeMatches = EVENT_TYPES
-      .filter(t => t.toLowerCase().includes(q))
-      .slice(0, 3)
+      .filter(t =>
+        t.toLowerCase().includes(q) ||
+        EVENT_TYPE_LABELS[t].toLowerCase().includes(q)
+      )
 
     const hasResults = countryMatches.length > 0 || typeMatches.length > 0
     setSuggestions({ countries: countryMatches, types: typeMatches })
@@ -104,10 +285,9 @@ export default function Header() {
 
     if (e.key === 'Enter' && val.trim()) {
       const q         = val.trim()
-      const countries = getCountries()
 
-      const exactMatch  = countries.find(c => c.toLowerCase() === q.toLowerCase())
-      const startsMatch = countries.find(c => c.toLowerCase().startsWith(q.toLowerCase()))
+      const exactMatch  = allCountries.find(c => c.toLowerCase() === q.toLowerCase())
+      const startsMatch = allCountries.find(c => c.toLowerCase().startsWith(q.toLowerCase()))
 
       if (exactMatch || startsMatch) {
         goToCountry(exactMatch || startsMatch)
@@ -140,7 +320,7 @@ export default function Header() {
   const hasTypes     = suggestions.types.length > 0
 
   return (
-    <header className="flex items-center gap-3 px-4 h-12 bg-[#06090e] border-b border-border flex-shrink-0 z-50">
+    <header className="flex items-center gap-3 px-4 h-12 bg-[#06090e] border-b border-border flex-shrink-0 z-[700]" style={{ position: 'relative' }}>
 
       {/* Logo */}
       <div className="flex items-center gap-2 min-w-[140px]">
@@ -209,9 +389,7 @@ export default function Header() {
                 </div>
                 {suggestions.types.map(type => {
                   const color = EVENT_TYPE_COLORS[type] || '#6b7280'
-                  const short = type
-                    .replace('/Remote violence', '')
-                    .replace(' against civilians', '')
+                  const short = EVENT_TYPE_LABELS[type] || type
                   return (
                     <button
                       key={type}
@@ -235,6 +413,9 @@ export default function Header() {
           </div>
         )}
       </div>
+
+      {/* Date range picker */}
+      <DateRangePicker />
 
       {/* Threat meter */}
       <div className="bg-threat/10 border border-threat/30 rounded px-3 py-1 text-center">

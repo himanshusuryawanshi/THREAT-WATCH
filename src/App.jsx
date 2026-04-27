@@ -11,7 +11,7 @@ import ComparePage from './pages/ComparePage'
 import ActorPage   from './pages/ActorPage'
 import useStore    from './store/useStore'
 
-const SIDEBAR_W = 220  // must match Sidebar width
+const SIDEBAR_W = 360  // must match Sidebar width
 
 function Dashboard({ mapRef, setMapRef }) {
   const loading     = useStore(s => s.loading)
